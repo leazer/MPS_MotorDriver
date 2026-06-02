@@ -48,8 +48,4 @@ Thumbs.db
 *.bak
 
 # --- Documentation resources (binary / generated) ---
-doc/*.pdf
-doc/*.png
-doc/*.jpg
-doc/*.jpeg
-doc/*.bmp
+doc/*
