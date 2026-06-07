@@ -37,6 +37,7 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
+#include "ma600a_debug.h"
 
 /* add user code end private includes */
 
@@ -99,6 +100,8 @@ int main(void)
   /* init spi2 function. */
   wk_spi2_init();
 
+  ma600a_debug_init();
+
   /* init wdt function. */
   wk_wdt_init();
 
@@ -114,10 +117,11 @@ int main(void)
 
   while(1)
   {
-    rt_thread_mdelay(1000);
+    rt_thread_mdelay(10);
 
     /* add user code begin 3 */
-		gpio_bits_toggle(LED_GPIO_PORT, LED_PIN);
+    ma600a_debug_poll();
+    gpio_bits_toggle(LED_GPIO_PORT, LED_PIN);
     /* add user code end 3 */
   }
 }

@@ -45,11 +45,15 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add sources to executable
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
+    ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a.c
+    ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a_at32_spi2.c
+    ${CMAKE_SOURCE_DIR}/project/src/ma600a_debug.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600
 )
 
 # Add project symbols (macros)

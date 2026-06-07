@@ -339,7 +339,7 @@
               <MiscControls></MiscControls>
               <Define>AT32M412KBU7_4, USE_STDPERIPH_DRIVER</Define>
               <Undefine></Undefine>
-              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;../../middlewares/rt-thread/include;../../middlewares/rt-thread/components/finsh</IncludePath>
+              <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;../../middlewares/rt-thread/include;../../middlewares/rt-thread/components/finsh;../../middlewares/msp/ma600</IncludePath>
             </VariousControls>
           </Cads>
           <Aads>
@@ -397,6 +397,11 @@
               <FileName>main.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\src\main.c</FilePath>
+            </File>
+            <File>
+              <FileName>ma600a_debug.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\src\ma600a_debug.c</FilePath>
             </File>
             <File>
               <FileName>rtthread_app.c</FileName>
@@ -672,6 +677,21 @@
               <FileName>context_rvds.s</FileName>
               <FileType>1</FileType>
               <FilePath>../../middlewares/rt-thread/libcpu/arm/cortex-m4/context_rvds.s</FilePath>
+            </File>
+          </Files>
+        </Group>
+        <Group>
+          <GroupName>middlewares/msp/ma600</GroupName>
+          <Files>
+            <File>
+              <FileName>ma600a.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\middlewares\msp\ma600\ma600a.c</FilePath>
+            </File>
+            <File>
+              <FileName>ma600a_at32_spi2.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\middlewares\msp\ma600\ma600a_at32_spi2.c</FilePath>
             </File>
           </Files>
         </Group>

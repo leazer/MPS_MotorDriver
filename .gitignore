@@ -26,7 +26,7 @@ project/MDK_V5/*.crf
 project/MDK_V5/*.htm
 project/MDK_V5/*.sct
 project/MDK_V5/*.i
-project/MDK_V5/JLink*.log
+project/MDK_V5/*.log
 project/MDK_V5/JLink*.txt
 project/MDK_V5/DebugConfig/
 

@@ -52,12 +52,13 @@ void wk_gpio_config(void)
   /* gpio input config */
   gpio_init_struct.gpio_mode = GPIO_MODE_INPUT;
   gpio_init_struct.gpio_pins = nFAULT_PIN;
-  gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+  gpio_init_struct.gpio_pull = GPIO_PULL_UP;
   gpio_init(nFAULT_GPIO_PORT, &gpio_init_struct);
 
   /* gpio output config */
-  gpio_bits_reset(GPIOA, LED_PIN | SPI2_CS_PIN);
+  gpio_bits_reset(LED_GPIO_PORT, LED_PIN);
   gpio_bits_reset(PWM_EN_GPIO_PORT, PWM_EN_PIN);
+  gpio_bits_set(SPI2_CS_GPIO_PORT, SPI2_CS_PIN);
 
   gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
   gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;

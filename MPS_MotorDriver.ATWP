@@ -140,6 +140,7 @@
         <FPU_IRQHandler>0;0;0;0;0;0</FPU_IRQHandler>
     </NVIC>
     <GPIO>
+        <ShowType>1</ShowType>
         <Signal SignalName="GPIO_Output" PinName="PA0">
             <Parameters name="Label" value="LED"/>
         </Signal>
@@ -156,6 +157,7 @@
             <Parameters name="Label" value="SOA"/>
         </Signal>
         <Signal SignalName="GPIO_Input" PinName="PB2">
+            <Parameters name="GPIO_PullType_Set" value="GPIO_PULL_UP"/>
             <Parameters name="Label" value="nFAULT"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PB10">
@@ -171,6 +173,7 @@
             <Parameters name="Label" value="PWMC"/>
         </Signal>
         <Signal SignalName="GPIO_Output" PinName="PA15">
+            <Parameters name="GPIO_Outputlevel" value="GPIO_OUTPUTLEVEL_HIGH"/>
             <Parameters name="Label" value="SPI2_CS"/>
         </Signal>
     </GPIO>
@@ -225,12 +228,12 @@
         <ProjectLocation>E:/WorkSpaces/2_电机驱动</ProjectLocation>
         <ToolchainIDE>CMake</ToolchainIDE>
         <ARMCompiler>0</ARMCompiler>
-        <BackupCode>true</BackupCode>
+        <BackupCode>false</BackupCode>
         <KeepUserCode>true</KeepUserCode>
         <NotUsedPinAnalog>false</NotUsedPinAnalog>
         <CodeSplitIP>true</CodeSplitIP>
         <AddNecessaryFileFlag>false</AddNecessaryFileFlag>
-        <DeletePriviousFiles>true</DeletePriviousFiles>
+        <DeletePriviousFiles>false</DeletePriviousFiles>
         <MinHeapSize>0x200</MinHeapSize>
         <MinStackSize>0x400</MinStackSize>
         <UseFirmware>true</UseFirmware>
