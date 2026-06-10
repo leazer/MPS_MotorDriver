@@ -25,13 +25,6 @@ set(WK_Application_Src
     ${CMAKE_SOURCE_DIR}/project/src/sysmem.c
     ${CMAKE_SOURCE_DIR}/project/src/at32m412_416_wk_config.c
     ${CMAKE_SOURCE_DIR}/project/src/at32m412_416_int.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_adc.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_can.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_spi.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_tmr.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_usart.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_wdt.c
-    ${CMAKE_SOURCE_DIR}/project/src/wk_gpio.c
     ${CMAKE_SOURCE_DIR}/startup_at32m412_416.s
     ${CMAKE_SOURCE_DIR}/project/src/rtthread_app.c
     ${CMAKE_SOURCE_DIR}/project/src/board.c

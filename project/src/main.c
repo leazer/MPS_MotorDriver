@@ -26,13 +26,6 @@
 
 /* Includes ------------------------------------------------------------------*/
 #include "at32m412_416_wk_config.h"
-#include "wk_adc.h"
-#include "wk_can.h"
-#include "wk_spi.h"
-#include "wk_tmr.h"
-#include "wk_usart.h"
-#include "wk_wdt.h"
-#include "wk_gpio.h"
 #include "rtthread_app.h"
 
 /* private includes ----------------------------------------------------------*/
@@ -100,8 +93,6 @@ int main(void)
   /* init spi2 function. */
   wk_spi2_init();
 
-  ma600a_debug_init();
-
   /* init wdt function. */
   wk_wdt_init();
 
@@ -117,7 +108,7 @@ int main(void)
 
   while(1)
   {
-    rt_thread_mdelay(10);
+    rt_thread_mdelay(1000);
 
     /* add user code begin 3 */
     ma600a_debug_poll();

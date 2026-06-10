@@ -121,6 +121,30 @@ extern "C" {
   /* nvic config. */
   void wk_nvic_config(void);
 
+  /* init gpio function. */
+  void wk_gpio_config(void);
+
+  /* init adc-common function. */
+  void wk_adc_common_init(void);
+
+  /* init adc2 function. */
+  void wk_adc2_init(void);
+
+  /* init can1 function. */
+  void wk_can1_init(void);
+
+  /* init spi2 function. */
+  void wk_spi2_init(void);
+
+  /* init tmr1 function. */
+  void wk_tmr1_init(void);
+
+  /* init usart1 function. */
+  void wk_usart1_init(void);
+
+  /* init wdt function. */
+  void wk_wdt_init(void);
+
 /* add user code begin exported functions */
 
 /* add user code end exported functions */

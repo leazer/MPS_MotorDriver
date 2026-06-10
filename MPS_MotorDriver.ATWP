@@ -226,12 +226,12 @@
     <ProjectInfomation>
         <ProjectName>MPS_MotorDriver</ProjectName>
         <ProjectLocation>E:/WorkSpaces/2_电机驱动</ProjectLocation>
-        <ToolchainIDE>CMake</ToolchainIDE>
+        <ToolchainIDE>MDK_V5</ToolchainIDE>
         <ARMCompiler>0</ARMCompiler>
         <BackupCode>false</BackupCode>
         <KeepUserCode>true</KeepUserCode>
         <NotUsedPinAnalog>false</NotUsedPinAnalog>
-        <CodeSplitIP>true</CodeSplitIP>
+        <CodeSplitIP>false</CodeSplitIP>
         <AddNecessaryFileFlag>false</AddNecessaryFileFlag>
         <DeletePriviousFiles>false</DeletePriviousFiles>
         <MinHeapSize>0x200</MinHeapSize>
