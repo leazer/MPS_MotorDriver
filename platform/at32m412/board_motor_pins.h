@@ -95,11 +95,11 @@ extern "C" {
 #define LED_GPIO_PORT            GPIOA
 #define LED_PIN                  GPIO_PINS_0
 
-/* ===== PWM 时序常数 (spec §1.3) ===== */
+/* ===== PWM 时序常数 (spec §1.3, 适配 180MHz sclk) ===== */
 #define PWM_FREQUENCY_HZ         16000u
-#define TMR1_CLOCK_HZ            96000000u
-#define TMR1_ARR                 2999u   /* 96MHz / (2 * 16kHz) - 1, 中心对齐 */
-#define PWM_DUTY_MAX             (uint16_t)(TMR1_ARR * 0.95f)  /* 硬限幅 95% */
+#define TMR1_CLOCK_HZ            180000000u   /* APB2 = sclk = 180MHz (APB2_DIV_1, 定时器不翻倍) */
+#define TMR1_ARR                 5624u   /* 180MHz / (2 * 16kHz) - 1, 中心对齐 TWO_WAY_3 */
+#define PWM_DUTY_MAX             (uint16_t)(TMR1_ARR * 0.95f)  /* 硬限幅 95% = 5342 */
 
 #ifdef __cplusplus
 }
