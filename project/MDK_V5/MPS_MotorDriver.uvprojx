@@ -14,7 +14,7 @@
                     <Device>AT32M412KBU7-4</Device>
                     <Vendor>ArteryTek</Vendor>
                     <PackID>ArteryTek.AT32M412_416_DFP.2.0.4</PackID>
-                    <Cpu>IRAM(0x20000000,0x4000) IROM(0x08000000,0x20000) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
+                    <Cpu>IRAM(0x20000000,0x4000) IROM(0x08000000,0x1FC00) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
                     <FlashUtilSpec/>
                     <StartupFile/>
                     <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0AT32M412_128 -FS08000000 -FL00020000 -FP0($$Device:AT32M412KBU7-4$Flash\AT32M412_128.FLM))</FlashDriverDll>
@@ -248,7 +248,7 @@
                             <IROM>
                                 <Type>1</Type>
                                 <StartAddress>0x8000000</StartAddress>
-                                <Size>0x20000</Size>
+                                <Size>0x1FC00</Size>
                             </IROM>
                             <XRAM>
                                 <Type>0</Type>
@@ -334,9 +334,9 @@
                         <v6Rtti>0</v6Rtti>
                         <VariousControls>
                             <MiscControls/>
-                            <Define>AT32M412KBU7_4, USE_STDPERIPH_DRIVER</Define>
+                            <Define>AT32M412KBU7_4, USE_STDPERIPH_DRIVER, DEBUG</Define>
                             <Undefine/>
-                            <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;../../middlewares/msp/ma600;../../middlewares/rt-thread/include;../../middlewares/rt-thread/components/finsh;</IncludePath>
+                            <IncludePath>..\..\libraries\drivers\inc;..\..\libraries\cmsis\cm4\core_support;..\..\libraries\cmsis\cm4\device_support;..\inc;..\..\middlewares\msp\ma600;..\..\middlewares\rt-thread\include;..\..\middlewares\rt-thread\components\finsh;..\..\application;..\..\application\motor_control;..\..\platform\at32m412;..\..\communication</IncludePath>
                         </VariousControls>
                     </Cads>
                     <Aads>
@@ -409,6 +409,111 @@
                             <FileName>board.c</FileName>
                             <FileType>1</FileType>
                             <FilePath>../src/board.c</FilePath>
+                        </File>
+                    </Files>
+                </Group>
+                <Group>
+                    <GroupName>application/motor_control</GroupName>
+                    <Files>
+                        <File>
+                            <FileName>motor_control.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\motor_control.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>foc_core.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\foc_core.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>current_loop.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\current_loop.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>speed_loop.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\speed_loop.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>position_loop.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\position_loop.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>motor_control_isr.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\motor_control_isr.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>fault_manager.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\fault_manager.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>motor_calibration.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_control\motor_calibration.c</FilePath>
+                        </File>
+                    </Files>
+                </Group>
+                <Group>
+                    <GroupName>application</GroupName>
+                    <Files>
+                        <File>
+                            <FileName>motor_app.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_app.c</FilePath>
+                        </File>
+                    </Files>
+                </Group>
+                <Group>
+                    <GroupName>platform/at32m412</GroupName>
+                    <Files>
+                        <File>
+                            <FileName>motor_pwm_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\motor_pwm_at32m412.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>current_sense_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\current_sense_at32m412.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>motor_encoder_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\motor_encoder_at32m412.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>motor_protect_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\motor_protect_at32m412.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>flash_calibration_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\flash_calibration_at32m412.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>clock_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\clock_at32m412.c</FilePath>
+                        </File>
+                    </Files>
+                </Group>
+                <Group>
+                    <GroupName>communication</GroupName>
+                    <Files>
+                        <File>
+                            <FileName>can_protocol.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\communication\can_protocol.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>can_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\communication\can_at32m412.c</FilePath>
                         </File>
                     </Files>
                 </Group>
