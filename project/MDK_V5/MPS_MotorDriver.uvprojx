@@ -471,6 +471,11 @@
                     <GroupName>platform/at32m412</GroupName>
                     <Files>
                         <File>
+                            <FileName>board_init_at32m412.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\platform\at32m412\board_init_at32m412.c</FilePath>
+                        </File>
+                        <File>
                             <FileName>motor_pwm_at32m412.c</FileName>
                             <FileType>1</FileType>
                             <FilePath>..\..\platform\at32m412\motor_pwm_at32m412.c</FilePath>
