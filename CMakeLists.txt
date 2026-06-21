@@ -46,18 +46,35 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_control.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/foc_core.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/current_loop.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/speed_loop.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/position_loop.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/motor_control_isr.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/fault_manager.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/motor_calibration.c
+    ${CMAKE_SOURCE_DIR}/application/motor_app.c
     ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a.c
     ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a_at32_spi2.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_pwm_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/current_sense_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_encoder_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_protect_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/flash_calibration_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/clock_at32m412.c
+    ${CMAKE_SOURCE_DIR}/communication/can_protocol.c
+    ${CMAKE_SOURCE_DIR}/communication/can_at32m412.c
     ${CMAKE_SOURCE_DIR}/project/src/ma600a_debug.c
 )
 
 # Add include paths
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
+    ${CMAKE_SOURCE_DIR}/application
     ${CMAKE_SOURCE_DIR}/application/motor_control
     ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600
     ${CMAKE_SOURCE_DIR}/platform/at32m412
+    ${CMAKE_SOURCE_DIR}/communication
 )
 
 # Add project symbols (macros)

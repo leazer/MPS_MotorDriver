@@ -27,10 +27,11 @@
 /* Includes ------------------------------------------------------------------*/
 #include "at32m412_416_wk_config.h"
 #include "rtthread_app.h"
+#include "clock_at32m412.h"
+#include "motor_app.h"
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-#include "ma600a_debug.h"
 
 /* add user code end private includes */
 
@@ -75,46 +76,20 @@ int main(void)
 
   /* add user code end 1 */
 
-  /* init gpio function. */
-  wk_gpio_config();
+  /* 系统时钟 (暂沿用 wk_system_clock_config) */
+  clock_at32m412_init();
 
-  /* init adc-common function. */
-  wk_adc_common_init();
-
-  /* init adc2 function. */
-  wk_adc2_init();
-
-  /* init usart1 function. */
-  wk_usart1_init();
-
-  /* init can1 function. */
-  wk_can1_init();
-
-  /* init spi2 function. */
-  wk_spi2_init();
-
-  /* init wdt function. */
-  wk_wdt_init();
-
-  /* init tmr1 function. */
-  wk_tmr1_init();
-
-  /* add user code begin 2 */
-  ma600a_debug_init();
-
-  /* add user code end 2 */
+  /* 应用层初始化 (加载标定 / 初始化状态机 / MA600A) */
+  motor_app_init();
 
   /* init rtthread function. */
   wk_rtthread_init();
 
-  while(1)
-  {
-    rt_thread_mdelay(1000);
+  /* 应用主循环 (内部 while(1)) */
+  motor_app_run();
 
-    /* add user code begin 3 */
-    ma600a_debug_poll();
-    gpio_bits_toggle(LED_GPIO_PORT, LED_PIN);
-    /* add user code end 3 */
+  /* 不应到达 */
+  while (1) {
   }
 }
 
