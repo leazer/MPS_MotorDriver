@@ -47,5 +47,8 @@ Thumbs.db
 *.orig
 *.bak
 
-# --- Documentation resources (binary / generated) ---
+# --- Documentation: allow spec/plan markdown ---
 doc/*
+!doc/FOC控制器开发记录.md
+!doc/stage0_baseline_2026-06-11.md
+!docs/

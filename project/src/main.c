@@ -100,6 +100,7 @@ int main(void)
   wk_tmr1_init();
 
   /* add user code begin 2 */
+  ma600a_debug_init();
 
   /* add user code end 2 */
 
