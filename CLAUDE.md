@@ -21,6 +21,29 @@
 
 本文件用于让智能体在中断或重新进入项目后快速恢复上下文。继续开发前必须阅读本文和 `doc/FOC控制器开发记录.md`。
 
+## Stage 0 Complete - 2026-06-22
+
+Stage 0 (基线整理与目录重构) 已完成. 详见 `docs/superpowers/specs/2026-06-22-mps-foc-design.md` 与 `docs/superpowers/plans/2026-06-22-plan1-project-baseline.md`.
+
+完成内容:
+- 新增分层目录骨架: `application/motor_control/` (foc_core/loops/isr/fault/calib), `platform/at32m412/` (current_sense/encoder/protect/flash/clock), `communication/` (can_protocol/can_at32m412)
+- 新增 `board_motor_pins.h` (引脚与时序常数集中定义), `motor_params.h` (所有参数宏)
+- Workbench `wk_*_init()` 函数体已清空 (保留 `wk_system_clock_config`), 按 spec 方案 Y
+- `main.c` 精简为 `clock_at32m412_init / motor_app_init / motor_app_run`
+- `CMakeLists.txt` 纳入全部新源, WSL 构建通过
+- `AT32M412xB_FLASH.ld` 预留末 1 KB 给标定区 (LENGTH 128K -> 127K)
+- 新增单元测试: test_foc_clarke / test_current_sense_calc / test_fault_manager (syntax-check)
+
+资源占用 (Stage 0 完成后): FLASH 14712 B / 127 KB (11.31%), RAM 3552 B / 16 KB (21.68%).
+
+已知限制:
+- wk_*_init 已清空, 板上外设不再初始化, 固件烧录后 MA600A 调试路径暂不可用 (预期, Plan 2 重建)
+- foc_park / foc_ipark / foc_svpwm / pid_f32_exec / 各 loop_run / isr_tick 均为 stub, Plan 2-4 实现
+- DSP 三角函数 (arm_sin_cos_f32) 未接入, Plan 4 处理
+- main.c 中 clock_at32m412_init 暂为 wk_system_clock_config 包装 (board.c 内 RT-Thread 启动也会调一次, 幂等无副作用)
+
+后续 Stage 1 前置条件已满足: 引脚映射 / 时序常数 / 参数宏 / 分层骨架全部就位.
+
 ## 项目定位
 
 项目路径：`E:\WorkSpaces\2_电机驱动\MPS_MotorDriver`

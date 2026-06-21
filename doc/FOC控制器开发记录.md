@@ -274,6 +274,7 @@ generated/
 | 日期 | 阶段 | 状态 | 记录 |
 | --- | --- | --- | --- |
 | 2026-06-11 | 阶段 0 | 进行中 | 已确认当前工程为 AT32M412 Workbench 生成结构，已有 MA600A 驱动基础。已查看 AT 官方 M412 电机库示例，建议参考 `pmsm_foc_magnetic_encoder`，但不直接原样合并。 |
+| 2026-06-22 | 阶段 0 | 已验证 | 目录重构完成, 分层骨架建立 (application/platform/communication), CMake 构建通过, 资源占用 FLASH 14712B / RAM 3552B. wk_*_init 已清空, 外设初始化移至 platform 层 (Plan 2). 详见 `docs/superpowers/plans/2026-06-22-plan1-project-baseline.md`. |
 
 状态枚举：
 
