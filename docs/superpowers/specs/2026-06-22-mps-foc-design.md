@@ -38,7 +38,7 @@
 
 ### 1.1 芯片与板载关键参数
 
-- MCU: AT32M412KBU7-4 (QFN32), 128 KB Flash, 16 KB RAM, Cortex-M4 96 MHz, FPU
+- MCU: AT32M412KBU7-4 (QFN32), 128 KB Flash, 16 KB RAM, Cortex-M4 180 MHz (实际配置, Flash 等待周期 5), FPU
 - 三相功率级: MP6540H, 内置三半桥 + 电流镜, **3 路高边 PWM 输入, 死区芯片内部**
 - 位置传感器: MA600A, SPI 接口, 12-bit 绝对角度, 集成速度寄存器
 - 电源: MP4583 宽压输入降压, 输出 5 V / 3.3 V
@@ -70,11 +70,11 @@
 
 ### 1.3 关键时序常数
 
-- TMR1 时钟: 96 MHz (CRM AHB 直连)
+- TMR1 时钟: 180 MHz (APB2 = sclk, APB2_DIV_1 定时器不翻倍)
 - PWM 频率: 16 kHz
-- PWM 周期 (中心对齐, 重复计数 1): `ARR = 96e6 / (2 * 16e3) - 1 = 2999`
+- PWM 周期 (中心对齐, 重复计数 1): `ARR = 180e6 / (2 * 16e3) - 1 = 5624`
 - 单 PWM 半周期: 31.25 µs, 全周期 62.5 µs
-- ADC 转换时间: ~1 µs/通道 (96 MHz / 12-bit / ~12 cycles sample + conv)
+- ADC 转换时间: ~0.7 µs/通道 (180 MHz / 12-bit / ~12 cycles sample + conv)
 - MA600A SPI 时钟: 12 MHz (远低于 25 MHz 上限), 16-bit 传输 ~1.4 µs, 32-bit ~2.7 µs
 - 控制环频率: 电流环 16 kHz / 速度环 1 kHz (FOC ISR 分频 16) / 位置环 200 Hz (FOC ISR 分频 80)
 - VBUS 分压比: 1/6 (硬件分压电阻已固定), ADC 满量程对应母线 19.8 V, 1 LSB = 4.834 mV
@@ -94,7 +94,7 @@
 | (1/80 次) 位置环 | +1 µs | 15 µs |
 | 故障检查 + 寄存器维护 | ~1 µs | 16 µs |
 
-峰值 ISR 占用 ~16 µs / 62.5 µs = 25.6%, 余量充足.
+峰值 ISR 占用 ~16 µs / 62.5 µs = 25.6%, 余量充足. (180 MHz sclk 下指令周期 5.5 ns, 实际各环节更快, 预算更宽松.)
 
 ## 2. 软件架构
 
@@ -298,13 +298,13 @@ void TMR1_OVF_TMR10_IRQHandler(void)
 
 ```
 PWM 周期 (中心对齐):
-  counter ----^---------v---------^----  (ARR=2999, period=62.5 µs)
-              0       1499      2999
+  counter ----^---------v---------^----  (ARR=5624, period=62.5 µs)
+              0       2812      5624
 
 low-side    [开通]    [关闭]   [开通]
 high-side   [关闭]    [开通]   [关闭]
 
-ADC 触发: TMR1_CH4 比较值 = ARR = 2999 (顶点)
+ADC 触发: TMR1_CH4 比较值 = ARR = 5624 (顶点)
 ADC 完成: 触发后 ~3 µs (注入序列 3 通道)
 ISR 触发: TMR1 update event (counter overflow at top) -> TMR1_OVF IRQ
 ```
@@ -363,7 +363,7 @@ ISR 触发: TMR1 update event (counter overflow at top) -> TMR1_OVF IRQ
 | 14 | SysTick | RT-Thread 节拍 (1 kHz) |
 | 15 (最低) | PendSV | RT-Thread 调度切换 |
 
-RT-Thread Nano 配置: `RT_KERNEL_BASEPRI = (14 << 4)`, 确保 FOC ISR / nFAULT / CAN 不被 RT-Thread 临界区屏蔽.
+RT-Thread Nano 临界区实现说明: 本工程 libcpu cortex-m4 的 `rt_hw_interrupt_disable` 使用 PRIMASK + CPSID I (全局关中断), 非 BASEPRI. 因此 `RT_KERNEL_BASEPRI` 配置不适用, FOC ISR 会被 RT-Thread 临界区短暂屏蔽. 缓解: 临界区通常 < 1 µs, 16 kHz 周期 62.5 µs 可吸收; 若 Stage 2/3 实测抖动超阈值, 再改 libcpu 为 BASEPRI 方案 (阈值 0xE0 = preempt 14, 仅屏蔽 SysTick/PendSV).
 
 ## 4. 算法实现细节
 
@@ -907,10 +907,10 @@ bus.send(msg)
 
 ### Stage 1: 硬件 Bring-up (2-3 天)
 
-- 实现 `clock_at32m412.c` 系统时钟 (96 MHz HSE 或 HICK)
+- 实现 `clock_at32m412.c` 系统时钟 (沿用 wk_system_clock_config, 180 MHz; spec §1.1 原标 96 MHz 已更正为 180 MHz)
 - 实现 `motor_pwm_at32m412.c` 最小集: TMR1 中心对齐 + 16 kHz + 3 路 PWM 输出 + 安全关断
-- 实现 `board_motor_pins.h` 集中定义所有引脚常量
-- 主程序: 上电 -> 时钟 -> 引脚 -> PWM 50% 输出 -> MP6540H_EN 保持低
+- 实现 `board_motor_pins.h` 集中定义所有引脚常量 + `board_init_at32m412.c` (外设时钟/GPIO/NVIC)
+- 主程序: 上电 -> 时钟 -> board_init (时钟/GPIO/NVIC) -> PWM 50% 输出 -> MP6540H_EN 保持低
 - 验收: 示波器看 PA8/PA9/PA10 = 16 kHz 中心对齐 50%, 三相对齐
 
 ### Stage 2: PWM 与开环控制 (2-3 天)
@@ -1015,7 +1015,7 @@ bus.send(msg)
 | MP6540H 电流采样 SNR 不足 | 中 | 电流环不稳 | 已采用数据手册推荐拓扑 (4.7k/4.7k 分压); Stage 3 若 SNR < 30 dB 再加软件 IIR 滤波 |
 | SVPWM 扇区判断 bug | 低 | 三相不平衡 | 主机端 6 扇区单元测试 + 示波器三相对齐验证 |
 | MA600A SPI 偶发超时 | 低 | FOC 周期抖动 | SPI 超时保护 + 故障锁存; 若高频出现切 DMA 异步 |
-| RT-Thread 临界区阻塞 FOC ISR | 低 | 控制环抖动 | `RT_KERNEL_BASEPRI = 14` 配置 + FOC ISR 不调 RT-Thread API |
+| RT-Thread 临界区阻塞 FOC ISR | 低 | 控制环抖动 | 本工程 libcpu 用 PRIMASK (非 BASEPRI), 短暂全局关中断; FOC ISR 不调 RT-Thread API; Stage 2/3 实测抖动超阈值再改 BASEPRI 方案 |
 | CAN 总线高负载延迟 | 低 | 控制响应慢 | 状态上报降级到 50 Hz / 25 Hz 可配置 |
 | Workbench 函数残留依赖 | 中 | Stage 0 编译错 | 全文搜索 `wk_.*_init` 调用点, 主程序入口完全重写 |
 

@@ -44,6 +44,31 @@ Stage 0 (基线整理与目录重构) 已完成. 详见 `docs/superpowers/specs/
 
 后续 Stage 1 前置条件已满足: 引脚映射 / 时序常数 / 参数宏 / 分层骨架全部就位.
 
+## Stage 1 Complete - 2026-06-22
+
+Stage 1 (硬件 Bring-up) 代码完成, 详见 `docs/superpowers/specs/2026-06-22-mps-foc-design.md` §7 Stage 1.
+
+完成内容:
+- `board_motor_pins.h` 时序常数适配 180MHz sclk (TMR1_CLOCK_HZ=180M, ARR=5624, 验算 180e6/(2*5625)=16kHz)
+- 新增 `board_init_at32m412.[ch]`: 外设时钟 (GPIOA/B + TMR1 + SCFG + PWC) + GPIO (nFAULT/LED/SPI2_CS/PWM_EN) + NVIC 优先级 (组4, TMR1_OVF=0/EXINT2=1/ADC=2/CAN=3/SysTick=14/PendSV=15, 仅设优先级不使能)
+- `motor_pwm_at32m412.c` 实现 TMR1 完整初始化: 中心对齐 TWO_WAY_3 + RCR=1 + ARR=5624 + 3路 PWM_MODE_A + CH4(ADC顶点触发预留) + brkdt 禁用 + 50% 初始占空比三相同电位
+- `motor_app_init()` 接入调用链: board_clock_init -> board_gpio_init -> board_nvic_init -> motor_pwm_at32m412_safe_init (MP6540H EN 保持低)
+- Keil .uvprojx 纳入 board_init_at32m412.c
+
+资源占用 (Stage 1 完成后):
+- WSL GCC: FLASH 16440 B / 127 KB (12.64%), RAM 3504 B / 16 KB (21.39%)
+- Keil ARMCC -O1: Code 9602 B + RO 806 + RW 184, ZI 3384
+
+关键决策 (与 spec 原文不同):
+- 系统时钟保持 wk_system_clock_config 的 180MHz (spec §1.1 原标 96MHz 已更正为 180MHz, 芯片实际规格支持 180MHz, Flash 等待周期 5)
+- TMR1_OVF / EXINT2 中断仅设优先级不使能 (各 Stage 实现 ISR 后再 nvic_irq_enable, 避免空 ISR 死循环)
+- RT-Thread libcpu 用 PRIMASK (非 BASEPRI), spec §3.5 原写的 RT_KERNEL_BASEPRI 不适用; FOC ISR 屏蔽风险留到 Stage 2/3 实测
+
+已知限制:
+- ma600a_debug_init/poll 暂注释 (需 SPI2 时钟, Stage 4 接编码器时恢复)
+- 台架示波器验收待执行 (接好板子用 flash.bat 烧录, 看 PA8/PA9/PA10 = 16kHz 中心对齐 50%)
+- SPI2/CAN1/USART1/ADC2 时钟未开 (各模块 Stage 初始化时自行开启)
+
 ## 项目定位
 
 项目路径：`E:\WorkSpaces\2_电机驱动\MPS_MotorDriver`
