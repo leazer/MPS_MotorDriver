@@ -37,8 +37,9 @@ void board_gpio_init(void)
     gpio_init_type gpio_init_struct;
     gpio_default_para_init(&gpio_init_struct);
 
-    /* 先写电平再配模式, 避免上电毛刺导致 MP6540H 误使能 */
-    gpio_bits_reset(LED_GPIO_PORT, LED_PIN);           /* LED 灭 */
+    /* 先写电平再配模式, 避免上电毛刺导致 MP6540H 误使能.
+     * LED (PA0) 负极接 IO, 低电平点亮 -> 初始置高 (灭). */
+    gpio_bits_set(LED_GPIO_PORT, LED_PIN);             /* LED 灭 (高电平) */
     gpio_bits_reset(PWM_EN_GPIO_PORT, PWM_EN_PIN);     /* MP6540H EN=低, 禁用 */
     gpio_bits_set(SPI2_CS_GPIO_PORT, SPI2_CS_PIN);     /* SPI CS=高, 片选无效 */
 

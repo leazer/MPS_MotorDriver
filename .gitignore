@@ -50,5 +50,6 @@ Thumbs.db
 # --- Documentation: allow spec/plan markdown ---
 doc/*
 !doc/FOC控制器开发记录.md
+!doc/调试记录.md
 !doc/stage0_baseline_2026-06-11.md
 !docs/

@@ -91,7 +91,7 @@ extern "C" {
 #define USART1_RX_PIN_SOURCE     GPIO_PINS_SOURCE7
 #define USART1_RX_IOMUX          GPIO_MUX_7
 
-/* ===== LED ===== */
+/* ===== LED (PA0, 负极接 IO, 低电平点亮) ===== */
 #define LED_GPIO_PORT            GPIOA
 #define LED_PIN                  GPIO_PINS_0
 

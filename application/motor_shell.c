@@ -72,7 +72,7 @@ static void pwm_en(int argc, char **argv)
 }
 MSH_CMD_EXPORT(pwm_en, control MP6540H EN pin: pwm_en <0|1>);
 
-/* ---- led <0|1>: 控制 LED (PA0) ---- */
+/* ---- led <0|1>: 控制 LED (PA0, 低电平点亮 - 负极接 IO) ---- */
 static void led(int argc, char **argv)
 {
     int on;
@@ -82,9 +82,9 @@ static void led(int argc, char **argv)
     }
     on = atoi(argv[1]);
     if (on) {
-        gpio_bits_set(LED_GPIO_PORT, LED_PIN);
+        gpio_bits_reset(LED_GPIO_PORT, LED_PIN);   /* 低电平点亮 */
     } else {
-        gpio_bits_reset(LED_GPIO_PORT, LED_PIN);
+        gpio_bits_set(LED_GPIO_PORT, LED_PIN);     /* 高电平熄灭 */
     }
     rt_kprintf("LED=%d\n", on);
 }
