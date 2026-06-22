@@ -465,6 +465,11 @@
                             <FileType>1</FileType>
                             <FilePath>..\..\application\motor_app.c</FilePath>
                         </File>
+                        <File>
+                            <FileName>motor_shell.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>..\..\application\motor_shell.c</FilePath>
+                        </File>
                     </Files>
                 </Group>
                 <Group>

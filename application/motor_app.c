@@ -9,6 +9,11 @@
 /* 全局电机控制实例 (motor_control 接口需要实例指针) */
 static motor_control_t s_motor_control;
 
+const motor_control_t *motor_app_get_control(void)
+{
+    return &s_motor_control;
+}
+
 void motor_app_init(void)
 {
     /* 板级初始化: 外设时钟 + GPIO + NVIC 优先级 (spec 方案 Y) */
