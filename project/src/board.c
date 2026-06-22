@@ -9,6 +9,7 @@
  */
 
 #include "rtthread_app.h"
+#include "board_init_at32m412.h"
 
 #if defined(RT_USING_USER_MAIN) && defined(RT_USING_HEAP)
 /*
@@ -41,7 +42,7 @@ MSH_CMD_EXPORT(reboot, Reboot System);
 #ifdef RT_USING_CONSOLE
 static int uart_init(void)
 {
-  wk_usart1_init();
+  board_usart1_init();
   return 0;
 }
 #ifndef RT_DEBUG_INIT
