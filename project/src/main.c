@@ -27,7 +27,6 @@
 /* Includes ------------------------------------------------------------------*/
 #include "at32m412_416_wk_config.h"
 #include "rtthread_app.h"
-#include "clock_at32m412.h"
 #include "motor_app.h"
 
 /* private includes ----------------------------------------------------------*/
@@ -76,10 +75,9 @@ int main(void)
 
   /* add user code end 1 */
 
-  /* 系统时钟 (暂沿用 wk_system_clock_config) */
-  clock_at32m412_init();
+  /* 系统时钟 + 板级初始化 (时钟/GPIO/NVIC) 已在 rt_hw_board_init 完成, 此处不重复 */
 
-  /* 应用层初始化 (加载标定 / 初始化状态机 / MA600A) */
+  /* 应用层初始化 (PWM + 状态机 + 标定) */
   motor_app_init();
 
   /* init rtthread function. */

@@ -2,7 +2,6 @@
 #include "motor_control.h"
 #include "fault_manager.h"
 #include "motor_calibration.h"
-#include "board_init_at32m412.h"
 #include "motor_pwm_at32m412.h"
 #include "ma600a_debug.h"
 
@@ -16,10 +15,7 @@ const motor_control_t *motor_app_get_control(void)
 
 void motor_app_init(void)
 {
-    /* 板级初始化: 外设时钟 + GPIO + NVIC 优先级 (spec 方案 Y) */
-    board_clock_init();
-    board_gpio_init();
-    board_nvic_init();
+    /* 板级初始化 (时钟/GPIO/NVIC) 已在 rt_hw_board_init 完成, 此处不重复 */
 
     /* PWM: TMR1 中心对齐 16kHz, 初始 50% 三相同电位, MP6540H EN 保持低 */
     motor_pwm_at32m412_safe_init();

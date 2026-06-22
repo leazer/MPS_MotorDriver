@@ -58,11 +58,11 @@ void rt_hw_board_init(void)
   /* system clock config. */
   wk_system_clock_config();
 
-  /* config periph clock. */
-  wk_periph_clock_config();
-
-  /* nvic config. */
-  wk_nvic_config();
+  /* 板级初始化: 外设时钟 + GPIO + NVIC (替代已清空的 wk_periph_clock_config/wk_nvic_config/wk_gpio_config)
+   * 必须在 rt_components_board_init 之前, 否则 uart_init->board_usart1_init 时 USART1/GPIOB 时钟未开 */
+  board_clock_init();
+  board_gpio_init();
+  board_nvic_init();
 
 #if defined(RT_DEBUG_INIT) && defined(RT_USING_CONSOLE)
   uart_init();
