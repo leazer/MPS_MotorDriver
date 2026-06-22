@@ -19,6 +19,9 @@ void board_gpio_init(void);
 /* NVIC 优先级组 4 + 系统异常 + RT-Thread 调度优先级 + 外设中断优先级(仅设, 不使能) */
 void board_nvic_init(void);
 
+/* USART1 初始化: PB6(TX)/PB7(RX) MUX_7, 115200 8N1, finsh console 后端 */
+void board_usart1_init(void);
+
 #ifdef __cplusplus
 }
 #endif

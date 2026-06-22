@@ -20,6 +20,9 @@ void board_clock_init(void)
     /* 高级定时器 (PWM) */
     crm_periph_clock_enable(CRM_TMR1_PERIPH_CLOCK, TRUE);
 
+    /* USART1 (finsh console) */
+    crm_periph_clock_enable(CRM_USART1_PERIPH_CLOCK, TRUE);
+
     /* SCFG: PA15(SPI2_CS) 等 GPIO 复用配置需要 */
     crm_periph_clock_enable(CRM_SCFG_PERIPH_CLOCK, TRUE);
 
@@ -82,4 +85,36 @@ void board_nvic_init(void)
     NVIC_SetPriority(EXINT2_IRQn,         NVIC_EncodePriority(NVIC_GetPriorityGrouping(), PRIO_NFAULT, 0));
     NVIC_SetPriority(ADC1_2_IRQn,         NVIC_EncodePriority(NVIC_GetPriorityGrouping(), PRIO_ADC, 0));
     NVIC_SetPriority(CAN1_RX_IRQn,        NVIC_EncodePriority(NVIC_GetPriorityGrouping(), PRIO_CAN_RX, 0));
+}
+
+void board_usart1_init(void)
+{
+    gpio_init_type gpio_init_struct;
+    gpio_default_para_init(&gpio_init_struct);
+
+    /* PB6 (TX) 复用 MUX_7 */
+    gpio_pin_mux_config(USART1_TX_GPIO_PORT, USART1_TX_PIN_SOURCE, USART1_TX_IOMUX);
+    gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+    gpio_init_struct.gpio_pins = USART1_TX_PIN;
+    gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+    gpio_init(USART1_TX_GPIO_PORT, &gpio_init_struct);
+
+    /* PB7 (RX) 复用 MUX_7 */
+    gpio_pin_mux_config(USART1_RX_GPIO_PORT, USART1_RX_PIN_SOURCE, USART1_RX_IOMUX);
+    gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
+    gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
+    gpio_init_struct.gpio_mode = GPIO_MODE_MUX;
+    gpio_init_struct.gpio_pins = USART1_RX_PIN;
+    gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
+    gpio_init(USART1_RX_GPIO_PORT, &gpio_init_struct);
+
+    /* 115200 8N1, 无流控, 使能收发 */
+    usart_init(USART1, 115200, USART_DATA_8BITS, USART_STOP_1_BIT);
+    usart_transmitter_enable(USART1, TRUE);
+    usart_receiver_enable(USART1, TRUE);
+    usart_parity_selection_config(USART1, USART_PARITY_NONE);
+    usart_hardware_flow_control_set(USART1, USART_HARDWARE_FLOW_NONE);
+    usart_enable(USART1, TRUE);
 }
