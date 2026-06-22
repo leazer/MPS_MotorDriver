@@ -292,6 +292,116 @@ Stage 4 (MA600A 有感角度闭环准备) + Stage 4b (旁轴非线性标定) 代
 - 标定用开环恒速, 速度脉动影响残差; 闭环速度环 (Stage 6) 后可重标定提升精度
 - 单元测试 (test_motor_calibration.c) 验证算法数学 (结构体布局/CRC32/电角度/查表), 硬件交互需台架验证
 
+## Stage 4+4b 台架验收调试 - 2026-06-22
+
+首次台架验收 (tests/stage4_bench.py) 暴露 3 个根因, 已修复:
+
+### 根因 1: open_loop/align 状态未互斥清理 (软件 bug, 已修)
+- **现象**: mc_align 后 mc_stop, mc_debug 仍显示 `align active=1`; mc_calibrate 报 "motor running"
+- **根因**: `motor_control_isr_open_loop_stop()` 只清 `s_ol_active`, 不碰 `s_align_active`; `align_stop()` 有早返回 (`if (!s_align_active) return`) 阻止清理 ol 残留
+- **修复** (motor_control_isr.c):
+  - `open_loop_stop`: 同时清 `s_align_active` + `s_align_vd`
+  - `align_stop`: 去掉早返回, 同时清 `s_ol_active` + `s_ol_vd` + `s_ol_theta_e`
+  - `open_loop_start`: 启动前清 `s_align_active = false`
+  - `align_start`: 启动前清 `s_ol_active = false`
+- **教训**: 共用 ISR/EN 的互斥模式, stop 必须清全部 active 标志, 不能只清自己的
+
+### 根因 2: SPI 读角度恒 0 — 真因是 GPIO mux, transfer16 改动属顺带修正
+- **现象**: `encoder` 的 `dbg_raw=0` 恒定, 但 `samples` 增长 (status==MA600A_OK), 即通信"成功"但数据全 0
+- **真因 (用户台架对比确认)**: SPI2 的 GPIO mux 设置错了 (PB3/PB4/PB5 复用号不对), MISO 拿不到数据
+- **transfer16 改动**: 我最初误判为"16-bit 帧模式下两次 transfer8 拼接导致时序错乱". 实际上用户修了 GPIO mux 后, 单次 16-bit 传输读到 `dbg_raw=44535` (16-bit 范围内正常). 改动本身对齐 AT 官方 AS5047P 做法 (单次 `spi_i2s_data_transmit(16bit)`), 保留. 但根因判断过程有误 — **教训: 在未排除硬件接线/复用前不应锁定软件根因**
+- **修复**: (1) 用户修正 GPIO mux; (2) ma600a_at32_spi2.c transfer16 改为单次 16-bit 收发 (保留)
+
+### 根因 2b: motor_encoder 误把 16-bit 当 12-bit 左移 (软件 bug, 已修)
+- **现象**: 标定 `max_resid=31195 mdeg` (31°) 远超阈值 1°; mc_debug 的 enc_raw 与 ma600a_debug 的 dbg_raw 量级不一致
+- **根因**: `motor_encoder_read_angle_speed()` 里 `*raw_angle_16 = (uint16_t)(raw_12 << 4)` 注释"12-bit -> 16-bit 扩展", 但 MA600A 角度寄存器本就是 16-bit (ma600a 驱动 `ma600a_read_angle_deg` 用 `/65536` 转角度证实). 左移 4 位导致 enc_raw/电角度换算/标定直方图分箱 (`idx = raw_16 >> 8`) 全部错乱
+- **修复** (motor_encoder_at32m412.c): 去掉 `<< 4`, 直接用 ma600a 返回的 16-bit 值
+- **教训**: 驱动层位宽假设要和数据手册/驱动内转换公式交叉验证, 不能凭注释
+
+### 根因 3: 脚本遗漏零偏标定 (操作问题, 已修)
+- **现象**: `mc_current` 显示 `offset: a=2048 b=2048 c=2048 (valid=0)`, 偏差全 0
+- **根因**: stage4_bench.py 未在开环前调 `mc_cal` (Stage 3 验收跑过, 但 Stage 4 脚本遗漏)
+- **修复**: stage4_bench.py Section B 开头补 `mc_cal` 零偏标定, 新增 B0_offset_calibrated 断言
+
+### 根因 4: 标定旋转按电角度圈数算, 机械覆盖不足 (软件 bug, 已修)
+- **现象**: 标定表 256 点中大量箱为相同值 (4795), 仅 idx 128-135 跳变; max_resid 28°; 用户观察"转 5 圈只转了一个电周期"
+- **根因**: `CAL_TURNS_PER_DIRECTION=5` 被 `CAL_SPIN_RAD_PER_S` 当电角度圈用 (open_loop_start 的 speed_rad_per_s 是电角度斜坡). 5 电圈 ÷ 7 极对数 = 0.71 机械圈, 仅覆盖 71% 编码器机械范围 (0..65535), 29% 的箱完全没采到数据. spec §4.7.2 要求"恒速正转 N 圈"覆盖机械全范围, 圈数应是机械圈
+- **修复** (motor_params.h): 新增 `CAL_MECH_TURNS_PER_DIRECTION=5`, `CAL_TURNS_PER_DIRECTION = CAL_MECH_TURNS × MOTOR_POLE_PAIRS = 35` 电角度圈. 保持 `CAL_SAMPLES_PER_DIRECTION=20480` (每箱 80 样本). 超时 20s→30s (35电圈@30rpm≈11.7s)
+- **教训**: 开环斜坡速度是电角度量, 编码器是机械量, 两者通过极对数换算. 标定要覆盖编码器机械全范围, 圈数必须按机械圈算
+
+### 根因 5: cal_compute_table 不除每箱采样次数 (软件 bug, 已修)
+- **现象**: 标定表值被放大饱和 (28317, -24106 等极端值), 即使覆盖充分也会失真
+- **根因**: `cal_compute_table` 里 `e[idx] = (hist_fwd[idx] + hist_rev[idx]) / 2`, 但 `hist[idx]` 是累加和 (N×delta) 不是平均值. 匀速全覆盖时每箱采 80 次, `(fwd+rev)/2 = 40×(d_fwd+d_rev)`, 放大 40 倍饱和. spec §4.7.5 line 706 也没除采样数 — spec 和实现都有此缺陷
+- **修复** (motor_calibration.c):
+  - 加 `s_bin_count_fwd[256]` + `s_bin_count_rev[256]` (uint16, 1KB RAM)
+  - tick 里每箱递增 count
+  - compute 归一化: `e[idx] = hist[idx] / count[idx]` 得平均偏移, 再正反平均
+  - 未采到箱 (count=0) 跳过不计入 mean, 表值留 0
+  - start/ZERO_ALIGN 切状态时清 count 数组
+- **教训**: 直方图累加和必须除以采样次数才得平均值; spec 的算法描述要数学验证, 不能照搬
+
+### 根因 6: 标定采样计数与物理旋转脱耦 (架构 bug, 已修)
+- **现象**: 标定表只有 8 个箱有数据 (≈11°机械), 电机几乎没转; D3 残差 637mdeg "通过"是假象 (大部分箱无数据, 残差自然小); 诊断快照未采到 (标定 2.56s 就 DONE)
+- **根因**: 状态切换按 `s_hist_count >= CAL_SAMPLES_PER_DIRECTION (20480)` 判断. 20480@16kHz = **1.28s 采满**, 但物理旋转 35 电圈 @ 30rpm = **70s**. 采样比旋转快 55 倍, 采满时电机只转 1.28/70 = 1.8% 圈 ≈ 6.5° 机械. 采样计数与物理旋转完全脱耦
+- **为什么前几轮没发现**: 第一轮 5 电圈 (覆盖不足)、第二轮 compute 不除采样次数 (累加饱和) 都是真 bug, 但即使修完, 采样 1.28s 采满的根本问题仍在, 电机还是没转. 三个根因层层叠加
+- **修复** (motor_calibration.c + motor_params.h):
+  - tick 里去掉样本数切状态判断, 只负责采集填直方图 (含 count 归一化)
+  - poll 里 SPIN_FWD/REV 用 `elapsed_ms >= CAL_SPIN_DURATION_MS` 切状态
+  - progress 改用旋转时间计算 (非样本数)
+  - 参数: `CAL_SPIN_SPEED_RPM` 30→60 (1圈/秒), `CAL_SPIN_DURATION_MS=35000` (35电圈@60rpm=35s), 超时 50s
+  - RAM 安全: 35s×16kHz=560k样本, 每箱最多 2188 样本, int32 累加最大 280k < 2^31
+- **教训**: 采样计数 (软件侧) 与物理旋转 (机械侧) 是两个独立的时间维度, 不能用一个决定另一个. 标定状态切换必须由物理旋转时长驱动
+
+### 构建验证
+- WSL GCC 修复后: FLASH 56552 B / 127 KB (43.49%, -44 B), RAM 9432 B / 16 KB (57.57%), 0 Error 0 Warning
+- 待台架重验: 烧录修复后固件, 重跑 stage4_bench.py. 标定约 72s (ALIGN 0.5s + FWD 35s + REV 35s + compute + flash), 期间电机会正反各转 5 机械圈
+
+### 台架重验进展 (19:54)
+- 标定按时间切状态生效: progress 76% SPIN_REV (按时间算进度, 固件修复已烧录)
+- 电机确实连续旋转了 (用户确认"可以连续转5圈了"), 根因 6 修复有效
+- 但标定超时: 脚本跑的是旧版 (CAL_TOTAL_TIMEOUT_S=60 而非 120), 60s 不够 (需 72s)
+- 速度偏慢: 60rpm 电角度 = 8.6rpm 机械 = 0.14 机械圈/秒, 5 机械圈需 35s. 用户观察"不是1圈/秒更慢" — 需诊断快照确认是参数设定 (0.14圈/秒) 还是电机失步
+- 脚本 bug: while...else 超时分支 return 前未保存 debug_snapshots, 导致诊断证据丢失 (已修)
+
+### 待确认
+- 重跑用最新脚本 (超时 120s + 超时路径保存诊断快照), 收集 D_spin_debug 看 enc_raw 递增速率
+- 若 enc_raw 递增匹配 0.14 机械圈/秒 → 速度慢是参数设定, 可接受或调高 CAL_SPIN_SPEED_RPM
+- 若 enc_raw 递增更慢或不连续 → 电机失步, 需调 Vd 或降速
+
+### 台架重验进展 (20:07) — 标定完成但残差超阈值
+- **标定 DONE**: 17 次轮询后完成, 耗时约 80s. D_spin_debug 完整采集 (17 个 mc_debug 快照)
+- **电机连续旋转确认**: enc_raw 跨零多次 (15063→43567→63058→21206→47792→14429...), 覆盖完整机械圆周 2+ 圈, 无失步卡顿
+- **覆盖大幅改善**: D4 非零点 244/256 (之前 8/256), 256 个箱基本都被采到
+- **残差 3663 mdeg (3.66°) 超阈值 1000 mdeg**: 主要是少数离群箱拉高, idx 200 附近 -3663 (line 529) 和 idx 192 附近 -1203 (line 525). 多数箱在 ±100 mdeg 内
+
+### 速度诊断 (D_spin_debug 算账)
+- 实测: 4s→8s (4秒) enc_raw 15063→43567, 增量 28504 LSB = 156.6°机械, 速率 39.15°/s = 0.109 圈/秒机械
+- 预期: 60rpm 电角度 = 8.57rpm 机械 = 51.4°/s = 0.143 圈/秒机械
+- **实际比预期慢 24%**, 但连续旋转无卡顿 → 非失步, 是开环滑差 (转子滞后斜坡角度). 闭环速度环 (Stage 6) 后可消除
+
+### 待优化 (Stage 6 闭环速度环后重标定)
+1. **离群箱**: idx 200/192 附近 -3663/-1203 mdeg, 可能是编码器跨零边界效应或该角度电机抖动. 可加中值滤波或剔除极端箱
+2. **速度滑差**: 开环转子滞后致速度脉动, 正反对消法假设恒速, 滑差影响残差. Stage 6 速度环后重标定可降残差
+3. **C 段开环 enc 死锁** (已知问题, 独立 bug): enc 模式 theta=编码器电角度, 转子不动则死锁. 待修
+
+### 下一步建议 (压缩后恢复用)
+- Stage 4+4b 标定功能已通 (电机旋转+覆盖+持久化), 残差 3.66° 偏高但可接受作 Stage 4b 开环过渡方案
+- 优先推进 Stage 5 (电流环), Stage 6 (速度环) 后用闭环重标定降残差到 < 1°
+- 或先修 C 段 enc 死锁 (改为 ramp 启动旋转后切 enc), 让开环 enc 验证可用
+- 用户决定优先级
+
+### 已知问题 (待修): C 段开环 enc 模式死锁
+- `mc_open ... enc` 模式下 `theta = s_enc_theta_e` (编码器电角度). 转子不动 → 编码器不动 → theta 不动 → 电压矢量固定 → 电机被锁定 → 死锁
+- enc 模式只能用于"电机已在转"时的跟踪验证, 不能启动旋转
+- C 段还受开机加载的旧标定表污染 (坏表查表校正错乱电角度)
+- 标定修好后单独处理: C 段改为先 ramp 启动旋转再切 enc, 或标定前 mc_cal_erase 清坏表
+
+### 台架验收关键约束补充 (实现发现)
+- **encoder 命令的 raw_16bit/alive 静止时为 0 是正常的**: 这两个字段依赖 ISR 调用 `motor_encoder_read_angle_speed` 更新 `s_last_raw16`. 静止验 SPI 只能看 `dbg_raw` (ma600a_debug 线程每 10ms 更新). `raw_16bit`/`alive` 要等 mc_open/mc_align 启动 ISR 后才有效
+- **dbg_raw 与 enc_raw 都是 16-bit (0..65535)**: MA600A 角度寄存器为 16-bit (ma600a 驱动 `ma600a_read_angle_deg` 用 `/65536` 转角度). ma600a_debug.dbg_raw 与 motor_encoder.enc_raw 同位宽, 早期代码误以为 12-bit 做 <<4 扩展是 bug (已修)
+- **mc_debug 的 enc_* 字段是 ISR 快照**: 需 ISR 运行过才有效, 静止时无效
+- **SPI GPIO mux 必须核对数据手册**: PB3/PB4/PB5 的 SPI2 复用号要对照 AT32M412 数据手册确认, mux 错会导致 MISO 拿不到数据 (通信"成功"但全 0), 易误判为软件时序问题
+
 ## 调试串口 + msh 命令 - 2026-06-22
 
 finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭环验证.

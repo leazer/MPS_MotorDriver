@@ -95,16 +95,19 @@ void motor_encoder_at32m412_init(void)
 
 int motor_encoder_read_angle_speed(uint16_t *raw_angle_16, int16_t *raw_speed)
 {
-    uint16_t raw_12 = 0u;
+    uint16_t raw_16 = 0u;
     int16_t  spd = 0;
 
     s_tick_seq++;
 
-    if (ma600a_read_angle_and_speed_raw(&s_ma600a, &raw_12, &spd) != 0) {
+    if (ma600a_read_angle_and_speed_raw(&s_ma600a, &raw_16, &spd) != 0) {
         s_error_count++;
         return -1;
     }
-    *raw_angle_16 = (uint16_t)(raw_12 << 4);   /* 12-bit -> 16-bit 扩展 */
+    /* MA600A 角度寄存器为 16-bit (ma600a 驱动 ma600a_read_angle_deg 用 /65536 转角度),
+     * 直接使用, 不做位扩展. 早期代码误以为 12-bit 做 <<4 扩展, 导致 enc_raw/电角度/
+     * 标定直方图分箱全部错乱 (标定残差达 31°). */
+    *raw_angle_16 = raw_16;
     *raw_speed = spd;
     s_last_raw16 = *raw_angle_16;
     s_last_success_tick = s_tick_seq;

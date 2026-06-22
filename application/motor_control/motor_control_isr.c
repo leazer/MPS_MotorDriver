@@ -336,6 +336,7 @@ int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s)
     s_ol_speed_rad_s = speed_rad_per_s;
     s_ol_theta_e     = 0.0f;
     s_ol_active      = true;
+    s_align_active   = false;   /* 互斥: 启动 open_loop 前清 ALIGN */
 
     /* 切模式 + 使能 */
     mc->mode  = MOTOR_CONTROL_MODE_OPEN_LOOP;
@@ -354,9 +355,14 @@ void motor_control_isr_open_loop_stop(void)
 {
     motor_control_t *mc;
 
+    /* 互斥清理: open_loop 与 ALIGN 共用 ISR/EN, 任一 stop 都清两个 active 标志.
+     * 否则 mc_align 后 mc_stop (open_loop_stop) 不清 s_align_active, 后续 mc_open
+     * 会让两个分支同时命中, mc_calibrate 检查 align_active() 误报 "motor running". */
     s_ol_active = false;
+    s_align_active = false;
     s_ol_vd     = 0.0f;
     s_ol_theta_e = 0.0f;
+    s_align_vd  = 0.0f;
 
     /* 先停 ISR, 再改输出 (避免竞态) */
     motor_pwm_at32m412_disable_ovf_irq();
@@ -405,6 +411,7 @@ int motor_control_isr_align_start(float vd_volts)
     s_align_tick_cnt = 0u;
     s_align_sum = 0u;
     s_align_sample_cnt = 0u;
+    s_ol_active = false;   /* 互斥: 启动 ALIGN 前清 open_loop */
 
     /* 切 ALIGN 模式 + 使能 */
     mc->mode = MOTOR_CONTROL_MODE_ALIGN;
@@ -420,11 +427,14 @@ void motor_control_isr_align_stop(void)
 {
     motor_control_t *mc;
 
-    if (!s_align_active) {
-        return;
-    }
+    /* 互斥清理: 与 open_loop_stop 对称, 清两个 active 标志.
+     * 注: 去掉原 "if (!s_align_active) return" 早返回, 否则 ALIGN 未激活时
+     * 调 align_stop (如 mc_stop 路径) 无法清理可能残留的 s_ol_active. */
     s_align_active = false;
+    s_ol_active = false;
     s_align_vd = 0.0f;
+    s_ol_vd = 0.0f;
+    s_ol_theta_e = 0.0f;
 
     motor_pwm_at32m412_disable_ovf_irq();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);

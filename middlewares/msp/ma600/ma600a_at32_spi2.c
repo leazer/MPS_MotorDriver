@@ -56,16 +56,22 @@ ma600a_status_t ma600a_at32_spi2_transfer8(void *user, uint8_t tx, uint8_t *rx)
 ma600a_status_t ma600a_at32_spi2_transfer16(void *user, uint16_t tx, uint16_t *rx)
 {
     ma600a_status_t status;
-    uint8_t high = 0u;
-    uint8_t low = 0u;
 
-    status = ma600a_at32_spi2_transfer8(user, (uint8_t)(tx >> 8), &high);
+    (void)user;
+
+    /* SPI2 配置为 SPI_FRAME_16BIT, 硬件按 16 位移位收发.
+     * 必须一次 spi_i2s_data_transmit 写 16-bit, 不能拆成两次 transfer8
+     * (拆分会在 16-bit 帧模式下产生两个独立 16-bit 帧, 时序错乱, MA600A 返回 0).
+     * 对齐 AT 官方 AS5047P SPI_ReadWriteByte 实现 (单次 16-bit 收发). */
+    status = ma600a_at32_spi2_wait_flag(SPI_I2S_TDBE_FLAG);
     if(status != MA600A_OK)
     {
         return status;
     }
 
-    status = ma600a_at32_spi2_transfer8(user, (uint8_t)(tx & 0x00FFu), &low);
+    spi_i2s_data_transmit(SPI2, tx);
+
+    status = ma600a_at32_spi2_wait_flag(SPI_I2S_RDBF_FLAG);
     if(status != MA600A_OK)
     {
         return status;
@@ -73,7 +79,11 @@ ma600a_status_t ma600a_at32_spi2_transfer16(void *user, uint16_t tx, uint16_t *r
 
     if(rx != 0)
     {
-        *rx = (uint16_t)(((uint16_t)high << 8) | low);
+        *rx = spi_i2s_data_receive(SPI2);
+    }
+    else
+    {
+        (void)spi_i2s_data_receive(SPI2);
     }
 
     return MA600A_OK;

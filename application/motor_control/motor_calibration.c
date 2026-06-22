@@ -47,6 +47,10 @@ static int16_t  s_max_residual = 0;       /* 0.001° 单位 */
  * 用 int32 累加, 最大 20480 次 × 128 = 2.6M, 不溢出. */
 static int32_t  s_hist_fwd[CAL_HIST_BINS];
 static int32_t  s_hist_rev[CAL_HIST_BINS];
+/* 每箱采样计数 (归一化用): compute 时 e[idx] = hist[idx] / count[idx] 得平均偏移.
+ * 早期实现缺这一步, 把累加和当平均值, 值放大 N 倍饱和. uint16 够 (max 20480 < 65535). */
+static uint16_t s_bin_count_fwd[CAL_HIST_BINS];
+static uint16_t s_bin_count_rev[CAL_HIST_BINS];
 static uint32_t s_hist_count_fwd = 0u;    /* 已累加样本数 */
 static uint32_t s_hist_count_rev = 0u;
 
@@ -96,14 +100,22 @@ cal_state_t motor_calibration_get_state(void) { return s_cal_state; }
 
 uint8_t motor_calibration_get_progress(void)
 {
-    /* FWD/REV 阶段按采集进度计算, 其它阶段固定比例 */
+    /* FWD/REV 阶段按旋转时间进度计算 (非样本数), 其它阶段固定比例 */
     switch (s_cal_state) {
         case CAL_STATE_IDLE:        return 0u;
         case CAL_STATE_ZERO_ALIGN:  return 5u;
-        case CAL_STATE_SPIN_FWD:
-            return 5u + (uint8_t)((uint64_t)s_hist_count_fwd * 40u / CAL_SAMPLES_PER_DIRECTION);
-        case CAL_STATE_SPIN_REV:
-            return 45u + (uint8_t)((uint64_t)s_hist_count_rev * 40u / CAL_SAMPLES_PER_DIRECTION);
+        case CAL_STATE_SPIN_FWD: {
+            uint32_t elapsed = (rt_tick_get() - s_phase_start_tick) * 1000u / RT_TICK_PER_SECOND;
+            uint32_t pct = elapsed * 40u / (CAL_SPIN_DURATION_MS + 1u);
+            if (pct > 40u) pct = 40u;
+            return 5u + (uint8_t)pct;
+        }
+        case CAL_STATE_SPIN_REV: {
+            uint32_t elapsed = (rt_tick_get() - s_phase_start_tick) * 1000u / RT_TICK_PER_SECOND;
+            uint32_t pct = elapsed * 40u / (CAL_SPIN_DURATION_MS + 1u);
+            if (pct > 40u) pct = 40u;
+            return 45u + (uint8_t)pct;
+        }
         case CAL_STATE_COMPUTE:     return 90u;
         case CAL_STATE_WRITE_FLASH: return 95u;
         case CAL_STATE_DONE:        return 100u;
@@ -142,18 +154,15 @@ void motor_calibration_tick(void)
 
     if (s_cal_state == CAL_STATE_SPIN_FWD) {
         s_hist_fwd[idx] += delta;
+        s_bin_count_fwd[idx]++;
         s_hist_count_fwd++;
-        if (s_hist_count_fwd >= CAL_SAMPLES_PER_DIRECTION) {
-            s_cal_state = CAL_STATE_SPIN_REV;
-            s_fwd_spin_started = false;   /* poll 启动反转时置 true */
-        }
+        /* 状态切换由 poll 按时间判断 (CAL_SPIN_DURATION_MS), 不在此按样本数切.
+         * 早期按 CAL_SAMPLES_PER_DIRECTION 切状态, 但 20480@16kHz=1.28s 采满,
+         * 而物理旋转需 70s, 采样远快于旋转, 采满时电机几乎没转. */
     } else { /* CAL_STATE_SPIN_REV */
         s_hist_rev[idx] += delta;
+        s_bin_count_rev[idx]++;
         s_hist_count_rev++;
-        if (s_hist_count_rev >= CAL_SAMPLES_PER_DIRECTION) {
-            s_cal_state = CAL_STATE_COMPUTE;
-            /* poll 会处理 COMPUTE */
-        }
     }
 }
 
@@ -179,25 +188,44 @@ void motor_calibration_abort(void)
 /* CAL_COMPUTE: 计算校正表 (spec §4.7.5 step 4) */
 static void cal_compute_table(void)
 {
-    int32_t sum;
-    int32_t mean;
+    int32_t e_fwd;
+    int32_t e_rev;
     int32_t e;
+    int32_t sum_valid;
+    int32_t mean;
     int32_t max_abs;
     uint16_t i;
+    uint16_t valid_bins;
 
-    /* 1. e[idx] = (hist_fwd[idx] + hist_rev[idx]) / 2 (去速度脉动) */
-    /* 2. 去直流: e -= mean(e), 保证表平均偏移为 0 */
-    /* 3. 限幅 ±32767 (int16, 单位 0.001°) */
-    /* 注: 直方图累加的是 raw16 LSB (65536=360°), 需转为 0.001°:
-     *    1 LSB = 360000/65536 = 5.493 mdeg. 平均后 e[idx] (LSB) × 5.493 = mdeg */
-
-    sum = 0;
+    /* 每箱平均偏移 = hist[idx] / count[idx] (归一化).
+     * 早期实现直接 (fwd+rev)/2 把累加和当平均值, 值放大 N 倍饱和. */
+    sum_valid = 0;
+    valid_bins = 0;
     for (i = 0; i < CAL_HIST_BINS; i++) {
-        e = (s_hist_fwd[i] + s_hist_rev[i]) / 2;
-        s_hist_fwd[i] = e;   /* 复用 fwd 数组暂存 e[idx] */
-        sum += e;
+        e_fwd = (s_bin_count_fwd[i] > 0u)
+              ? (s_hist_fwd[i] / (int32_t)s_bin_count_fwd[i])
+              : 0;
+        e_rev = (s_bin_count_rev[i] > 0u)
+              ? (s_hist_rev[i] / (int32_t)s_bin_count_rev[i])
+              : 0;
+        /* 正反平均去速度脉动 (spec §4.7.2). 仅当正反都采到才有效, 否则用单边. */
+        if (s_bin_count_fwd[i] > 0u && s_bin_count_rev[i] > 0u) {
+            e = (e_fwd + e_rev) / 2;
+        } else if (s_bin_count_fwd[i] > 0u) {
+            e = e_fwd;
+        } else if (s_bin_count_rev[i] > 0u) {
+            e = e_rev;
+        } else {
+            e = 0;   /* 未采到, 后续去直流后留 0 */
+            continue; /* 不计入 mean */
+        }
+        s_hist_fwd[i] = e;   /* 复用 fwd 数组暂存归一化后的 e[idx] */
+        sum_valid += e;
+        valid_bins++;
     }
-    mean = sum / (int32_t)CAL_HIST_BINS;
+
+    /* 去直流: 仅对采到的箱算 mean, 保证表平均偏移为 0 */
+    mean = (valid_bins > 0u) ? (sum_valid / (int32_t)valid_bins) : 0;
 
     max_abs = 0;
     for (i = 0; i < CAL_HIST_BINS; i++) {
@@ -266,6 +294,8 @@ void motor_calibration_poll(void)
                     s_hist_count_rev = 0u;
                     memset(s_hist_fwd, 0, sizeof(s_hist_fwd));
                     memset(s_hist_rev, 0, sizeof(s_hist_rev));
+                    memset(s_bin_count_fwd, 0, sizeof(s_bin_count_fwd));
+                    memset(s_bin_count_rev, 0, sizeof(s_bin_count_rev));
                 }
             }
             break;
@@ -280,14 +310,17 @@ void motor_calibration_poll(void)
                 }
                 s_fwd_spin_started = true;
                 s_phase_start_tick = now;
-            } else if (s_hist_count_fwd < CAL_SAMPLES_PER_DIRECTION) {
-                /* 采集中, 检查超时 */
+            } else {
                 elapsed_ms = (now - s_phase_start_tick) * 1000u / RT_TICK_PER_SECOND;
-                if (elapsed_ms > CAL_SPIN_TIMEOUT_MS) {
+                if (elapsed_ms >= CAL_SPIN_DURATION_MS) {
+                    /* 旋转时长到, 切反转. 状态切换由 poll 按时间判断 (非样本数),
+                     * 保证物理旋转覆盖足够机械圈. */
+                    s_cal_state = CAL_STATE_SPIN_REV;
+                    s_fwd_spin_started = false;   /* poll 启动反转时置 true */
+                } else if (elapsed_ms > CAL_SPIN_TIMEOUT_MS) {
                     motor_calibration_abort();
                 }
             }
-            /* 采集满由 ISR tick 切到 SPIN_REV (并清 s_fwd_spin_started) */
             break;
 
         case CAL_STATE_SPIN_REV:
@@ -301,13 +334,14 @@ void motor_calibration_poll(void)
                 }
                 s_rev_spin_started = true;
                 s_phase_start_tick = now;
-            } else if (s_hist_count_rev < CAL_SAMPLES_PER_DIRECTION) {
+            } else {
                 elapsed_ms = (now - s_phase_start_tick) * 1000u / RT_TICK_PER_SECOND;
-                if (elapsed_ms > CAL_SPIN_TIMEOUT_MS) {
+                if (elapsed_ms >= CAL_SPIN_DURATION_MS) {
+                    s_cal_state = CAL_STATE_COMPUTE;
+                } else if (elapsed_ms > CAL_SPIN_TIMEOUT_MS) {
                     motor_calibration_abort();
                 }
             }
-            /* 采集满由 ISR tick 切到 COMPUTE */
             break;
 
         case CAL_STATE_COMPUTE:
@@ -366,6 +400,8 @@ void motor_calibration_start(void)
     s_rev_spin_started = false;
     memset(s_hist_fwd, 0, sizeof(s_hist_fwd));
     memset(s_hist_rev, 0, sizeof(s_hist_rev));
+    memset(s_bin_count_fwd, 0, sizeof(s_bin_count_fwd));
+    memset(s_bin_count_rev, 0, sizeof(s_bin_count_rev));
     memset(&s_cal, 0, sizeof(s_cal));
 
     s_cal_state = CAL_STATE_ZERO_ALIGN;

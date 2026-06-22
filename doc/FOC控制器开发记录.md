@@ -279,7 +279,7 @@ generated/
 | 2026-06-22 | 调试基础设施 | 代码完成 | finsh/msh 调试串口接入 (USART1 PB6/PB7 115200). 8 个电机 msh 命令 (pwm_info/pwm_duty/pwm_en/led/mc_state/fault/fault_clear/encoder). WSL FLASH 33968B / Keil Code 20936B. 台架串口验收待执行. |
 | 2026-06-22 | 阶段 2 | 代码完成 | foc_core (Clarke/Park/IPark/SVPWM + 自建 sin LUT) + motor_control_isr OPEN_LOOP + TMR1_OVF 中断 + mc_open/mc_stop/mc_debug. WSL FLASH 58920B. 台架开环旋转验收待执行. 详见 CLAUDE.md Stage 2. |
 | 2026-06-22 | 阶段 3 | 已验证 | current_sense_at32m412 ADC2 注入序列 + CH4 谷底触发 + 零偏标定 + 过流/不平衡保护. 台架验证: VBUS 11.9V, 零偏偏差 20-22 LSB, 开环电流 -116~138mA. Keil Code 27428B. 详见 CLAUDE.md Stage 3. |
-| 2026-06-22 | 阶段 4+4b | 代码完成 | MA600A SPI2 接入 (Mode1/2.8MHz) + 电角度换算 + ALIGN 零点对齐 + OPEN_LOOP enc 开关 + 旁轴标定 (FLASH/CRC/256段直方图/查表). 6 个新 msh 命令. WSL FLASH 56292B / RAM 8408B. 台架编码器+标定验收待执行. 详见 CLAUDE.md Stage 4+4b. |
+| 2026-06-22 | 阶段 4+4b | 调试中 | MA600A SPI2 接入 + 旁轴标定. 台架验收修复 6 根因: (1) open_loop/align 状态未互斥 (2) SPI GPIO mux+transfer16 (3) motor_encoder 16-bit误左移 (4) 标定旋转电角度圈数致覆盖不足 (5) compute不除采样次数 (6) 采样计数与旋转脱耦改按时间切状态. 最新(20:07): 标定DONE, 电机连续旋转覆盖244/256箱, 残差3663mdeg(少数离群箱拉高, 多数±100mdeg内), 速度慢24%(开环滑差, 非失步). 待Stage6速度环后闭环重标定降残差<1°. 详见CLAUDE.md. |
 
 状态枚举：
 

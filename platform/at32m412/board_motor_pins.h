@@ -54,17 +54,17 @@ extern "C" {
 #define SPI2_SCK_GPIO_PORT       GPIOB
 #define SPI2_SCK_PIN             GPIO_PINS_3
 #define SPI2_SCK_PIN_SOURCE      GPIO_PINS_SOURCE3
-#define SPI2_SCK_IOMUX           GPIO_MUX_3
+#define SPI2_SCK_IOMUX           GPIO_MUX_6
 
 #define SPI2_MISO_GPIO_PORT      GPIOB
 #define SPI2_MISO_PIN            GPIO_PINS_4
 #define SPI2_MISO_PIN_SOURCE     GPIO_PINS_SOURCE4
-#define SPI2_MISO_IOMUX          GPIO_MUX_3
+#define SPI2_MISO_IOMUX          GPIO_MUX_6
 
 #define SPI2_MOSI_GPIO_PORT      GPIOB
 #define SPI2_MOSI_PIN            GPIO_PINS_5
 #define SPI2_MOSI_PIN_SOURCE     GPIO_PINS_SOURCE5
-#define SPI2_MOSI_IOMUX          GPIO_MUX_3
+#define SPI2_MOSI_IOMUX          GPIO_MUX_6
 
 #define SPI2_CS_GPIO_PORT        GPIOA
 #define SPI2_CS_PIN              GPIO_PINS_15
