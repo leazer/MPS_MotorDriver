@@ -767,6 +767,31 @@
                         </File>
                     </Files>
                 </Group>
+                <Group>
+                    <GroupName>middlewares/rt-thread/components/finsh</GroupName>
+                    <Files>
+                        <File>
+                            <FileName>shell.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>../../middlewares/rt-thread/components/finsh/shell.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>msh.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>../../middlewares/rt-thread/components/finsh/msh.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>msh_parse.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>../../middlewares/rt-thread/components/finsh/msh_parse.c</FilePath>
+                        </File>
+                        <File>
+                            <FileName>cmd.c</FileName>
+                            <FileType>1</FileType>
+                            <FilePath>../../middlewares/rt-thread/components/finsh/cmd.c</FilePath>
+                        </File>
+                    </Files>
+                </Group>
             </Groups>
         </Target>
     </Targets>

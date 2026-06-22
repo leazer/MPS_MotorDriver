@@ -77,6 +77,10 @@ set(RT-Thread_Nano_Src
     ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/src/timer.c
     ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/libcpu/arm/cortex-m4/cpuport.c
     ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/libcpu/arm/cortex-m4/context_gcc.s
+    ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/components/finsh/shell.c
+    ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/components/finsh/msh.c
+    ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/components/finsh/msh_parse.c
+    ${CMAKE_SOURCE_DIR}/middlewares/rt-thread/components/finsh/cmd.c
 )
 
 # Link directories setup
