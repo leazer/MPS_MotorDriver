@@ -69,6 +69,50 @@ Stage 1 (硬件 Bring-up) 代码完成, 详见 `docs/superpowers/specs/2026-06-2
 - 台架示波器验收待执行 (接好板子用 flash.bat 烧录, 看 PA8/PA9/PA10 = 16kHz 中心对齐 50%)
 - SPI2/CAN1/USART1/ADC2 时钟未开 (各模块 Stage 初始化时自行开启)
 
+## 调试串口 + msh 命令 - 2026-06-22
+
+finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭环验证.
+
+### 串口配置
+- 物理引脚: PB6 (TX) / PB7 (RX), USART1, MUX_7
+- 参数: 115200 8N1, 无流控
+- 初始化位置: `platform/at32m412/board_init_at32m412.c` 的 `board_usart1_init()`
+- 启动链: `rt_hw_board_init` -> `rt_components_board_init` -> `uart_init()` (INIT_BOARD_EXPORT) -> `board_usart1_init()`
+- 提示符: `msh />` (finsh msh 模式)
+
+### 配置开关
+- `project/inc/finsh_config.h`: `RT_USING_FINSH` 已开启
+- `project/inc/rtconfig.h`: `RT_USING_CONSOLE` 已开启
+- `RT_USING_HEAP` 仍关闭 (finsh 走静态分配分支, 够用)
+- finsh 源码: `shell.c / msh.c / msh_parse.c / cmd.c` 已纳入 CMake + Keil
+
+### 资源占用 (含 finsh + msh 命令)
+- WSL GCC: FLASH 33968 B / 127 KB (26.12%), RAM 5544 B / 16 KB (33.84%)
+- Keil ARMCC -O1: Code 20936 + RO 2268, ZI 4944
+
+### 可用 msh 命令 (application/motor_shell.c)
+
+| 命令 | 用途 | Stage |
+| --- | --- | --- |
+| `pwm_info` | 打印 TMR1 配置 (ARR/频率/当前 CCR/EN 状态) | 1 |
+| `pwm_duty <u> <v> <w>` | 手动设置三相占空比 ticks (限幅 95%) | 2 开环 |
+| `pwm_en <0\|1>` | 控制 MP6540H EN 引脚 (0=禁用, 1=使能) | 安全测试 |
+| `led <0\|1>` | 控制 LED (PA0) | GPIO 验证 |
+| `mc_state` | 打印电机控制状态机 (state/mode/fault) | 全 Stage |
+| `fault` | 打印故障位明细 | 全 Stage |
+| `fault_clear` | 清除所有故障 | 全 Stage |
+| `encoder` | 打印 MA600A 角度/速度/状态 (Stage 4 接入后有效) | 4 |
+
+finsh 自带命令: `help` / `ps` / `version` / `list_thread` / `free` / `reboot` 等.
+
+### 台架验收步骤
+1. 接好 JLink + 板子供电
+2. `cd project\MDK_V5 && flash.bat rebuild`
+3. 串口工具连 PB6(TX)/PB7(RX), 115200 8N1
+4. 上电后应见 RT-Thread 版本横幅 + `msh />` 提示符
+5. 输入 `pwm_info` 验证 TMR1 配置, `led 1` 验证 GPIO, `mc_state` 验证状态机
+6. 示波器探 PA8/PA9/PA10 看 16kHz 中心对齐 50% (Stage 1 PWM 验收)
+
 ## 项目定位
 
 项目路径：`E:\WorkSpaces\2_电机驱动\MPS_MotorDriver`
