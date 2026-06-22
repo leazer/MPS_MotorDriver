@@ -37,5 +37,9 @@ void motor_app_run(void)
          * ma600a_debug_poll();
          */
         /* Plan 5 加入 CAN 收发 / 状态上报 */
+
+        /* 让出 CPU 给 finsh 线程 (优先级 21, 低于 main 的 10).
+         * main 线程若死循环不让出, finsh 线程得不到调度, msh 提示符不出现. */
+        rt_thread_mdelay(10);
     }
 }
