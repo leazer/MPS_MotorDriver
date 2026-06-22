@@ -84,12 +84,12 @@ extern "C" {
 #define USART1_TX_GPIO_PORT      GPIOB
 #define USART1_TX_PIN            GPIO_PINS_6
 #define USART1_TX_PIN_SOURCE     GPIO_PINS_SOURCE6
-#define USART1_TX_IOMUX          GPIO_MUX_0
+#define USART1_TX_IOMUX          GPIO_MUX_7
 
 #define USART1_RX_GPIO_PORT      GPIOB
 #define USART1_RX_PIN            GPIO_PINS_7
 #define USART1_RX_PIN_SOURCE     GPIO_PINS_SOURCE7
-#define USART1_RX_IOMUX          GPIO_MUX_0
+#define USART1_RX_IOMUX          GPIO_MUX_7
 
 /* ===== LED ===== */
 #define LED_GPIO_PORT            GPIOA
