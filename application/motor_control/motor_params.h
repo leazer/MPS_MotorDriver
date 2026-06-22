@@ -45,9 +45,33 @@ extern "C" {
 #define CAL_MAGIC                       0x304C4143u   /* 'CAL0' little-endian */
 #define CAL_VERSION                     1u
 #define CAL_TABLE_POINTS                256u
+#define CAL_HIST_BINS                   256u   /* = CAL_TABLE_POINTS, 直方图分箱数 */
+/* CRC 覆盖范围: table(512) + mech_zero_raw(2) + pole_pairs(1) + reserved2(1) = 516 字节 */
+#define CAL_CRC_PAYLOAD_SIZE            (CAL_TABLE_POINTS * 2u + 2u + 1u + 1u)
 #define CAL_TURNS_PER_DIRECTION         5u
 #define CAL_SPIN_SPEED_RPM              30
 #define CAL_SAMPLES_PER_TURN            4096u
+#define CAL_SAMPLES_PER_DIRECTION       (CAL_TURNS_PER_DIRECTION * CAL_SAMPLES_PER_TURN)
+#define CAL_SPIN_TIMEOUT_MS             20000u   /* 每方向 20s 超时 (5圈@30rpm≈10s, 留余量) */
+#define CAL_MAX_RESIDUAL_MDEG           1000     /* 验收: 残差峰峰 < 1° (0.001° 为单位) */
+
+/* 直方图累加用 int32, 单位为 raw16 LSB (65536 = 360°).
+ * 每箱累加 (raw - bin_base), bin_base = idx * 256. 单箱范围 ±256 LSB. */
+#define CAL_HIST_VALUE_MAX              32767   /* int16 限幅, 0.001° 单位 (±32.767°) */
+
+/* 标定状态机轮询间隔 (motor_app_run 内, 避免占用 CPU) */
+#define CAL_POLL_INTERVAL_MS            5u
+
+/* ===== ALIGN 零点对齐 (spec §4.5.3) ===== */
+/* Vd_align 由 ZERO_ALIGN_CURRENT_A × 估算相电阻.
+ * 2808 BLDC 相电阻约 1Ω, 1A × 1Ω = 1V. 台架实测后修正. */
+#define ALIGN_VD_VOLTS                  1.0f
+#define ALIGN_VD_MAX_VOLTS              (VBUS_OVERVOLTAGE_THRESHOLD_V)   /* 18V 上限 */
+/* ALIGN 总持续 500ms, 前 400ms 稳定, 后 100ms 采样平均作零点.
+ * 采样窗口转为 tick 数: 100ms × 16kHz = 1600 ticks */
+#define ALIGN_HOLD_MS                   (ZERO_ALIGN_HOLD_MS)
+#define ALIGN_SETTLE_MS                 (ZERO_ALIGN_HOLD_MS - ZERO_ALIGN_SAMPLE_WINDOW_MS)  /* 400ms */
+#define ALIGN_SAMPLE_TICKS              (ZERO_ALIGN_SAMPLE_WINDOW_MS * PWM_FREQUENCY_HZ / 1000u)
 
 /* ===== PID 参数初值 (spec §4.4) ===== */
 /* 电流环 */

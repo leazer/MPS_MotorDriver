@@ -1,6 +1,7 @@
 #include "motor_pwm_at32m412.h"
 #include "board_motor_pins.h"
 #include "at32m412_416.h"
+#include "motor_control_isr.h"
 
 /* 内部: 限幅单通道占空比 */
 static uint16_t pwm_clamp_duty(uint16_t duty)
@@ -69,8 +70,16 @@ void motor_pwm_at32m412_init(void)
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, TMR1_ARR / 2u);
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_3, TMR1_ARR / 2u);
 
-    /* --- 4. CH4: 比较值=ARR, 为 Stage 3 ADC 顶点触发预留 (Stage 1 不触发 ADC) --- */
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, TMR1_ARR);
+    /* --- 4. CH4: 输出比较模式, 比较值=1 (谷底), 触发 ADC 注入序列 ---
+     * MP6540H 电流镜仅在高边导通时反映相电流 (高边关闭时 I_LOAD=0, V_SO=V_REF).
+     * 中心对齐 PWM 在谷底 (counter≈0) 时三相高边全部导通, 是唯一保证
+     * 三相电流均可测的采样点. (区别于低边采样电阻拓扑在顶点采样.)
+     * 必须调用 tmr_output_channel_config 配置 CH4 为输出比较, 否则不产生
+     * 比较事件, ADC 注入序列无法被 TMR1_CH4 触发 (spec §3.2).
+     * 参考工程 mc_hwio.c: tmr_output_channel_config(ADC_TIMER, CH4, ...) */
+    tmr_output_channel_config(TMR1, TMR_SELECT_CHANNEL_4, &tmr_output_struct);
+    tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_4, TRUE);
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, 1);   /* 谷底触发 */
 
     /* --- 5. 刹车/死区: 不使能刹车 (MP6540H nFAULT 走 EXINT, 不接 TMR1_BRK) --- */
     tmr_brkdt_struct.brk_enable = FALSE;
@@ -110,4 +119,27 @@ void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint1
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_1, pwm_clamp_duty(phase_u));
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, pwm_clamp_duty(phase_v));
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_3, pwm_clamp_duty(phase_w));
+}
+
+void motor_pwm_at32m412_enable_ovf_irq(void)
+{
+    /* 使能 NVIC (优先级已在 board_nvic_init 设为 0=PRIO_FOC_ISR) + TMR1 OVF 中断使能 */
+    nvic_irq_enable(TMR1_OVF_TMR10_IRQn, 0, 0);
+    tmr_interrupt_enable(TMR1, TMR_OVF_INT, TRUE);
+}
+
+void motor_pwm_at32m412_disable_ovf_irq(void)
+{
+    tmr_interrupt_enable(TMR1, TMR_OVF_INT, FALSE);
+    NVIC_DisableIRQ(TMR1_OVF_TMR10_IRQn);
+}
+
+/* TMR1 溢出中断 (16kHz, 中心对齐顶点): 触发 FOC ISR.
+ * NVIC 优先级 0 (最高, board_nvic_init 设置), 抢占 RT-Thread 调度. */
+void TMR1_OVF_TMR10_IRQHandler(void)
+{
+    if (tmr_flag_get(TMR1, TMR_OVF_FLAG) != RESET) {
+        tmr_flag_clear(TMR1, TMR_OVF_FLAG);
+        motor_control_isr_tick();
+    }
 }

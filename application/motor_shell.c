@@ -15,8 +15,14 @@
 #include "board_motor_pins.h"
 #include "at32m412_416.h"
 #include "motor_pwm_at32m412.h"
+#include "current_sense_at32m412.h"
+#include "motor_encoder_at32m412.h"
 #include "motor_control.h"
+#include "motor_control_isr.h"
+#include "motor_calibration.h"
+#include "flash_calibration_at32m412.h"
 #include "fault_manager.h"
+#include "motor_params.h"
 #include "motor_app.h"
 #include "ma600a_debug.h"
 
@@ -103,6 +109,177 @@ static void mc_state(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_state, show motor control state/mode/fault);
 
+/* ---- mc_open <vd_mv> <speed_rpm_elec> [enc|ramp]: 启动开环旋转 (Stage 2/4) ----
+ * vd_mv          : d 轴目标电压 (毫伏), 典型 500..3000, 上限 18000
+ * speed_rpm_elec : 电角度转速 (rpm), 正=正转 负=反转
+ *   例: mc_open 1000 300        (纯斜坡, Stage 2 行为)
+ *       mc_open 1000 300 enc    (用编码器电角度, Stage 4 验证编码器)
+ * 安全: 启动前确认限流电源已接, MP6540H EN 会自动拉高.
+ * 注意: 参数用整数毫伏, 因 rt_kprintf 不支持 %f.
+ */
+static void mc_open(int argc, char **argv)
+{
+    long vd_mv;
+    long rpm_elec;
+    float vd_volts;
+    float rad_per_s;
+    int ret;
+    bool use_enc = false;
+    if (argc < 3 || argc > 4) {
+        rt_kprintf("usage: mc_open <vd_mv> <speed_rpm_elec> [enc|ramp]\n");
+        rt_kprintf("  vd_mv: d-axis voltage in mV (0..18000), typ 500..3000\n");
+        rt_kprintf("  speed_rpm_elec: electrical rpm (sign=direction)\n");
+        rt_kprintf("  enc: use encoder electrical angle (Stage 4)\n");
+        return;
+    }
+    vd_mv     = strtol(argv[1], NULL, 0);
+    rpm_elec  = strtol(argv[2], NULL, 0);
+    vd_volts  = (float)vd_mv / 1000.0f;
+    rad_per_s = (float)rpm_elec * 6.28318530718f / 60.0f;
+
+    /* Stage 4: 可选第三参数 enc/ramp */
+    if (argc == 4) {
+        if (argv[3][0] == 'e' || argv[3][0] == 'E') {
+            use_enc = true;
+        } else if (argv[3][0] == 'r' || argv[3][0] == 'R') {
+            use_enc = false;
+        } else {
+            rt_kprintf("FAIL: third arg must be 'enc' or 'ramp'\n");
+            return;
+        }
+    }
+    motor_control_isr_open_loop_set_encoder_angle(use_enc);
+
+    ret = motor_control_isr_open_loop_start(vd_volts, rad_per_s);
+    if (ret == 0) {
+        rt_kprintf("OPEN_LOOP started: vd=%ld mV, speed=%ld rpm_elec, angle=%s\n",
+                   vd_mv, rpm_elec, use_enc ? "encoder" : "ramp");
+        rt_kprintf("MP6540H EN=HIGH, TMR1_OVF IRQ enabled (16kHz ISR)\n");
+    } else if (ret == -1) {
+        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else {
+        rt_kprintf("FAIL: param out of range. vd=[0..18000] mV, speed=[-600..600] rpm_elec\n");
+    }
+}
+MSH_CMD_EXPORT(mc_open, start open-loop: mc_open <vd_mv> <speed_rpm_elec> [enc|ramp]);
+
+/* ---- mc_stop: 停止开环, 切回 DISABLED, 关 MP6540H ---- */
+static void mc_stop(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    motor_control_isr_open_loop_stop();
+    rt_kprintf("OPEN_LOOP stopped. MP6540H EN=LOW, PWM=50%%, state=DISABLED\n");
+}
+MSH_CMD_EXPORT(mc_stop, stop open-loop and disable MP6540H);
+
+/* ---- mc_debug: 打印 ISR 内部状态 (定点: mrad/mV, 因 kprintf 不支持 %f) ---- */
+static void mc_debug(int argc, char **argv)
+{
+    motor_control_isr_debug_t dbg;
+    (void)argc; (void)argv;
+    motor_control_isr_get_debug(&dbg);
+    rt_kprintf("=== FOC ISR debug ===\n");
+    rt_kprintf("active    : %d\n", motor_control_isr_open_loop_active() ? 1 : 0);
+    rt_kprintf("theta_e   : %ld mrad (%ld mdeg)\n",
+               (long)dbg.theta_mrad, (long)(dbg.theta_mrad * 180 / 3141));
+    rt_kprintf("v_alpha   : %ld mV\n", (long)dbg.v_alpha_mv);
+    rt_kprintf("v_beta    : %ld mV\n", (long)dbg.v_beta_mv);
+    rt_kprintf("CCR1/2/3  : %u / %u / %u\n", dbg.ta, dbg.tb, dbg.tc);
+    rt_kprintf("tick_count: %lu (%lu ms)\n", dbg.tick_count, dbg.tick_count / 16u);
+    rt_kprintf("branch hits: ol=%lu fault=%lu disabled=%lu\n",
+               dbg.ol_branch_hits, dbg.fault_hits, dbg.disabled_hits);
+    rt_kprintf("current   : ia=%ld ib=%ld ic=%ld mA\n",
+               (long)dbg.ia_ma, (long)dbg.ib_ma, (long)dbg.ic_ma);
+    rt_kprintf("adc_raw   : ia=%u ib=%u ic=%u\n",
+               dbg.ia_raw, dbg.ib_raw, dbg.ic_raw);
+    rt_kprintf("vbus      : %ld mV\n", (long)dbg.vbus_mv);
+    rt_kprintf("protect   : oc=%lu imbal=%lu\n",
+               dbg.oc_hits, dbg.imbal_hits);
+    rt_kprintf("encoder   : raw=%u theta=%ld mrad (%ld mdeg) err=%u alive=%d\n",
+               dbg.enc_raw, (long)dbg.enc_theta_mrad,
+               (long)(dbg.enc_theta_mrad * 180 / 3141),
+               dbg.enc_errors, (int)dbg.enc_alive);
+    rt_kprintf("align     : hits=%lu active=%d\n",
+               dbg.align_hits, motor_control_isr_align_active() ? 1 : 0);
+    rt_kprintf("cal       : state=%lu progress=%u%%\n",
+               dbg.cal_state, (unsigned)dbg.cal_progress);
+}
+MSH_CMD_EXPORT(mc_debug, show FOC ISR internal state);
+
+/* ---- mc_current: 打印三相电流 + VBUS 详细 (Stage 3) ---- */
+static void mc_current(int argc, char **argv)
+{
+    motor_control_isr_debug_t dbg;
+    uint16_t ofs_a, ofs_b, ofs_c;
+    (void)argc; (void)argv;
+    motor_control_isr_get_debug(&dbg);
+    current_sense_at32m412_get_offset(&ofs_a, &ofs_b, &ofs_c);
+    rt_kprintf("=== current sense ===\n");
+    rt_kprintf("offset    : a=%u b=%u c=%u (valid=%d)\n",
+               ofs_a, ofs_b, ofs_c,
+               current_sense_at32m412_offset_valid() ? 1 : 0);
+    rt_kprintf("raw       : ia=%u ib=%u ic=%u\n",
+               dbg.ia_raw, dbg.ib_raw, dbg.ic_raw);
+    rt_kprintf("current   : ia=%ld ib=%ld ic=%ld mA\n",
+               (long)dbg.ia_ma, (long)dbg.ib_ma, (long)dbg.ic_ma);
+    rt_kprintf("sum       : %ld mA (threshold %ld mA)\n",
+               (long)(dbg.ia_ma + dbg.ib_ma + dbg.ic_ma),
+               (long)(IMBALANCE_THRESHOLD_A * 1000.0f));
+    rt_kprintf("vbus      : %ld mV (%ld.%03ld V)\n",
+               (long)dbg.vbus_mv,
+               (long)(dbg.vbus_mv / 1000),
+               (long)(dbg.vbus_mv % 1000));
+}
+MSH_CMD_EXPORT(mc_current, show 3-phase current and VBUS detail);
+
+/* ---- mc_cal: 零偏标定 (PWM 50% 时采 1024 次平均, spec §4.3.3) ----
+ * 前置条件: PWM 已输出 50% (mc_stop 或开机默认), MP6540H 可使能或禁用.
+ * 标定期间 ISR 若未启动, 用软件触发读取; 若已启动, 直接读注入结果.
+ * 建议: 先 mc_stop (确保 50% + DISABLED), 再 mc_cal.
+ */
+static void mc_cal(int argc, char **argv)
+{
+    bool ok;
+    uint16_t ofs_a, ofs_b, ofs_c;
+    (void)argc; (void)argv;
+
+    /* 标定前确保 PWM 50% 三相同电位 (无电流) */
+    motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+
+    /* MP6540H 必须使能 (EN=HIGH): 电流镜需要芯片上电才能输出有效 V_REF.
+     * 50% 占空比时三相同电位, 无电流流过, SO 输出 = V_REF (2048 LSB). */
+    motor_pwm_at32m412_enable_output();
+    rt_kprintf("PWM=50%%, MP6540H EN=HIGH, calibrating offset (1024 samples)...\n");
+
+    /* 开环激活时拒绝标定 (会读到带电流的数据) */
+    if (motor_control_isr_open_loop_active()) {
+        rt_kprintf("FAIL: open-loop active. Run 'mc_stop' first.\n");
+        motor_pwm_at32m412_disable_output();
+        return;
+    }
+
+    /* 启动 ISR 以驱动 ADC 注入序列 (TMR1_CH4 触发), 标定完停止.
+     * state=DISABLED 时 ISR 输出 50%, 不出力. */
+    motor_pwm_at32m412_enable_ovf_irq();
+    rt_thread_mdelay(100);   /* 等待 ADC 稳定 + MP6540H 上电 */
+
+    ok = current_sense_at32m412_calibrate_offset();
+
+    motor_pwm_at32m412_disable_ovf_irq();
+    motor_pwm_at32m412_disable_output();   /* 标定完禁用 MP6540H */
+
+    current_sense_at32m412_get_offset(&ofs_a, &ofs_b, &ofs_c);
+    if (ok) {
+        rt_kprintf("offset OK: a=%u b=%u c=%u (deviation < %u LSB)\n",
+                   ofs_a, ofs_b, ofs_c, 50u);
+    } else {
+        rt_kprintf("offset FAIL: a=%u b=%u c=%u (deviation > %u LSB from 2048)\n",
+                   ofs_a, ofs_b, ofs_c, 50u);
+        rt_kprintf("check hardware: SOA/SOB/SOC wiring, MP6540H EN, VREF divider\n");
+    }
+}
+MSH_CMD_EXPORT(mc_cal, calibrate current zero offset (PWM 50%%));
+
 /* ---- fault: 打印故障位 ---- */
 static void fault(int argc, char **argv)
 {
@@ -133,18 +310,200 @@ static void fault_clear(int argc, char **argv)
 }
 MSH_CMD_EXPORT(fault_clear, clear all fault flags);
 
-/* ---- encoder: 打印 MA600A 编码器数据 ---- */
+/* ---- encoder: 打印 MA600A 编码器数据 (定点, 因 kprintf 不支持 %f) ---- */
 static void encoder(int argc, char **argv)
 {
+    uint16_t raw16;
+    uint16_t zero;
+    int32_t  theta_mrad;
+    int32_t  angle_mdeg;
     (void)argc; (void)argv;
+
+    raw16 = motor_encoder_get_last_raw();
+    zero  = motor_encoder_get_zero();
+    /* 电角度 (毫弧度): ISR 快照更准, 但此处独立算一次供验证 */
+    theta_mrad = (int32_t)(motor_encoder_to_electrical_angle(raw16) * 1000.0f);
+    angle_mdeg = (int32_t)((uint32_t)raw16 * 360000u / 65536u);
+
     rt_kprintf("=== MA600A ===\n");
-    rt_kprintf("raw_angle : %u\n", g_ma600a_raw_angle);
-    rt_kprintf("angle_deg : %.2f\n", g_ma600a_angle_deg);
-    rt_kprintf("speed_raw : %d\n", g_ma600a_speed_raw);
-    rt_kprintf("speed_rpm : %.2f\n", g_ma600a_speed_rpm);
-    rt_kprintf("status    : %d\n", g_ma600a_status);
-    rt_kprintf("samples   : %u\n", g_ma600a_sample_count);
-    rt_kprintf("errors    : %u\n", g_ma600a_error_count);
-    rt_kprintf("bct/axis  : %u / %u\n", g_ma600a_bct, g_ma600a_axis);
+    rt_kprintf("raw_16bit : %u\n", raw16);
+    rt_kprintf("raw_12bit : %u\n", (unsigned)(raw16 >> 4));
+    rt_kprintf("angle_mdeg: %ld (%ld.%03ld deg)\n",
+               (long)angle_mdeg,
+               (long)(angle_mdeg / 1000),
+               (long)(angle_mdeg % 1000));
+    rt_kprintf("elec_mrad : %ld (%ld mdeg)\n",
+               (long)theta_mrad, (long)(theta_mrad * 180 / 3141));
+    rt_kprintf("zero_raw  : %u\n", zero);
+    rt_kprintf("errors    : %u\n", motor_encoder_get_error_count());
+    rt_kprintf("alive     : %d\n", motor_encoder_is_alive() ? 1 : 0);
+    rt_kprintf("cal_valid : %d\n", motor_calibration_is_valid() ? 1 : 0);
+    /* ma600a_debug 全局变量 (非 ISR 轮询路径) */
+    rt_kprintf("dbg_raw   : %u\n", g_ma600a_raw_angle);
+    rt_kprintf("dbg_mdeg  : %ld\n", (long)(g_ma600a_angle_deg * 1000.0f));
+    rt_kprintf("dbg_spd   : %d (mrpm %ld)\n",
+               g_ma600a_speed_raw, (long)(g_ma600a_speed_rpm * 1000.0f));
+    rt_kprintf("dbg_stat  : %d, samples %u, errors %u\n",
+               (int)g_ma600a_status,
+               g_ma600a_sample_count, g_ma600a_error_count);
 }
 MSH_CMD_EXPORT(encoder, show MA600A encoder angle and speed);
+
+/* ---- vbus: 独立读取母线电压 (软件触发, 不依赖 ISR) ---- */
+static void vbus(int argc, char **argv)
+{
+    float v;
+    uint16_t raw;
+    (void)argc; (void)argv;
+    raw = current_sense_at32m412_read_vbus_raw();
+    v = (float)raw * VBUS_VOLTS_PER_LSB;
+    rt_kprintf("vbus_raw : %u\n", raw);
+    rt_kprintf("vbus     : %ld mV (%ld.%03ld V)\n",
+               (long)(v * 1000.0f),
+               (long)(v),
+               (long)(v * 1000.0f) % 1000);
+    rt_kprintf("threshold: uv=%ld mV  ov=%ld mV\n",
+               (long)(VBUS_UNDERVOLTAGE_THRESHOLD_V * 1000.0f),
+               (long)(VBUS_OVERVOLTAGE_THRESHOLD_V * 1000.0f));
+}
+MSH_CMD_EXPORT(vbus, read VBUS voltage (software triggered));
+
+/* ===== Stage 4: ALIGN 零点对齐 + 手动零点 + 旁轴标定 ===== */
+
+/* ---- mc_align <vd_mv>: 启动 ALIGN 模式, 转子对齐 d 轴 0° (spec §4.5.3) ----
+ * vd_mv: d 轴锁定电压 (毫伏), 典型 500..2000, 上限 18000
+ * 持续期间转子被强制对齐, 手转有阻力. 停止用 mc_stop.
+ * ALIGN 结束后用 mc_zero 读取对齐角度并写入零点.
+ */
+static void mc_align(int argc, char **argv)
+{
+    long vd_mv;
+    float vd_volts;
+    int ret;
+    if (argc != 2) {
+        rt_kprintf("usage: mc_align <vd_mv>\n");
+        rt_kprintf("  vd_mv: d-axis lock voltage in mV (0..18000), typ 500..2000\n");
+        return;
+    }
+    vd_mv = strtol(argv[1], NULL, 0);
+    vd_volts = (float)vd_mv / 1000.0f;
+    ret = motor_control_isr_align_start(vd_volts);
+    if (ret == 0) {
+        rt_kprintf("ALIGN started: vd=%ld mV. Rotor locking to d-axis 0deg.\n", vd_mv);
+        rt_kprintf("Wait 500ms, then 'mc_zero' to capture alignment angle.\n");
+        rt_kprintf("Stop with 'mc_stop'.\n");
+    } else if (ret == -1) {
+        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else {
+        rt_kprintf("FAIL: vd out of range [0..18000] mV\n");
+    }
+}
+MSH_CMD_EXPORT(mc_align, start ALIGN mode: mc_align <vd_mv>);
+
+/* ---- mc_zero [raw16]: 读取或设置零点 (mech_zero_raw, 16-bit) ----
+ * 无参: 显示当前零点 + ALIGN 采集到的对齐角度
+ * 有参: 手动设置零点 (raw 16-bit, 0..65535)
+ */
+static void mc_zero(int argc, char **argv)
+{
+    if (argc == 1) {
+        uint16_t align_angle;
+        align_angle = motor_control_isr_get_align_angle();
+        rt_kprintf("zero_raw    : %u\n", motor_encoder_get_zero());
+        rt_kprintf("align_angle : %u (from ALIGN, 0 if ALIGN not done)\n", align_angle);
+        rt_kprintf("To set: mc_zero <raw16>\n");
+    } else {
+        long raw;
+        raw = strtol(argv[1], NULL, 0);
+        if (raw < 0 || raw > 65535) {
+            rt_kprintf("FAIL: raw must be 0..65535\n");
+            return;
+        }
+        motor_encoder_set_zero((uint16_t)raw);
+        rt_kprintf("zero set to %u\n", (unsigned)raw);
+    }
+}
+MSH_CMD_EXPORT(mc_zero, get/set encoder zero: mc_zero [raw16]);
+
+/* ---- mc_calibrate: 触发旁轴非线性标定 (spec §4.7.5, Stage 4b) ----
+ * 流程: ALIGN 对齐 -> 正转 5 圈 -> 反转 5 圈 -> 计算表 -> 写 FLASH
+ * 全程约 25s. 期间电机自动启停. 进度用 mc_cal_status 查看.
+ * 中止: fault_clear 后 mc_cal_status 显示 ABORTED, 旧标定保留.
+ */
+static void mc_calibrate(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    if (fault_manager_any_fatal()) {
+        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+        return;
+    }
+    if (motor_control_isr_open_loop_active() || motor_control_isr_align_active()) {
+        rt_kprintf("FAIL: motor running. Run 'mc_stop' first.\n");
+        return;
+    }
+    motor_calibration_start();
+    rt_kprintf("Calibration started. ~25s (ALIGN 0.5s + FWD 10s + REV 10s + compute + flash).\n");
+    rt_kprintf("Progress: 'mc_cal_status'. Motor will spin automatically.\n");
+}
+MSH_CMD_EXPORT(mc_calibrate, start off-axis calibration);
+
+/* ---- mc_cal_status: 打印标定状态/进度/残差 (Stage 4b) ---- */
+static void mc_cal_status(int argc, char **argv)
+{
+    static const char *state_names[] = {
+        "IDLE", "ZERO_ALIGN", "SPIN_FWD", "SPIN_REV",
+        "COMPUTE", "WRITE_FLASH", "DONE", "ABORTED"
+    };
+    cal_state_t st;
+    (void)argc; (void)argv;
+    st = motor_calibration_get_state();
+    rt_kprintf("=== calibration ===\n");
+    rt_kprintf("state     : %d (%s)\n", (int)st,
+               (st <= CAL_STATE_ABORTED) ? state_names[st] : "?");
+    rt_kprintf("progress  : %u%%\n", (unsigned)motor_calibration_get_progress());
+    rt_kprintf("valid     : %d\n", motor_calibration_is_valid() ? 1 : 0);
+    rt_kprintf("max_resid : %ld mdeg (%ld.%03ld deg)\n",
+               (long)motor_calibration_get_max_residual(),
+               (long)(motor_calibration_get_max_residual() / 1000),
+               (long)(motor_calibration_get_max_residual() % 1000));
+    rt_kprintf("threshold : %ld mdeg\n", (long)CAL_MAX_RESIDUAL_MDEG);
+}
+MSH_CMD_EXPORT(mc_cal_status, show calibration state and progress);
+
+/* ---- mc_cal_dump: 打印 256 点校正表 (每行 8 点, 单位 0.001°) ---- */
+static void mc_cal_dump(int argc, char **argv)
+{
+    const int16_t *table;
+    uint16_t i;
+    (void)argc; (void)argv;
+    if (!motor_calibration_is_valid()) {
+        rt_kprintf("calibration not valid. Run 'mc_calibrate' first.\n");
+        return;
+    }
+    table = motor_calibration_get_table();
+    rt_kprintf("=== calibration table (256 pts, unit 0.001 deg) ===\n");
+    for (i = 0u; i < CAL_TABLE_POINTS; i++) {
+        rt_kprintf("%6d", (int)table[i]);
+        if ((i & 7u) == 7u || i == CAL_TABLE_POINTS - 1u) {
+            rt_kprintf("\n");
+        }
+    }
+}
+MSH_CMD_EXPORT(mc_cal_dump, dump 256-point calibration table);
+
+/* ---- mc_cal_erase: 擦除 FLASH 标定区 (Stage 4b) ----
+ * 擦除后重启会触发 FAULT_CAL_INVALID, 可重新标定.
+ */
+static void mc_cal_erase(int argc, char **argv)
+{
+    bool ok;
+    (void)argc; (void)argv;
+    ok = flash_calibration_erase();
+    if (ok) {
+        rt_kprintf("FLASH calibration sector erased (0x0801FC00).\n");
+        rt_kprintf("Reboot -> FAULT_CAL_INVALID will be set.\n");
+    } else {
+        rt_kprintf("FAIL: erase failed (flash protected or timeout)\n");
+    }
+}
+MSH_CMD_EXPORT(mc_cal_erase, erase FLASH calibration sector);

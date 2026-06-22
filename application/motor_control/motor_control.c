@@ -80,7 +80,7 @@ motor_control_status_t motor_control_set_mode(motor_control_t *control, motor_co
         return MOTOR_CONTROL_STATUS_NULL;
     }
 
-    if(mode > MOTOR_CONTROL_MODE_POSITION)
+    if(mode > MOTOR_CONTROL_MODE_ALIGN)
     {
         return MOTOR_CONTROL_STATUS_RANGE;
     }

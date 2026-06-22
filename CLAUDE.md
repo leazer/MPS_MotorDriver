@@ -1,5 +1,13 @@
 # CLAUDE.md
 
+## Token 节省规范（所有 Stage 适用，agent 每次会话开头必读）
+
+1. **优先 Grep 定位，再按需 Read**: 避免整文件读入大文件（spec 1050 行 ~15k tokens）。先用 Grep 找行号，再 `Read offset/limit` 读必要片段。
+2. **spec/大文件只在首次需要时读**: 后续引用 CLAUDE.md 中已记录的结论，不重复读 spec 全文。
+3. **关键结论写进 CLAUDE.md**: bug 根因、接口设计、硬件约束等写入文件，不依赖对话上下文记忆（文件按需读一次，对话每轮付费）。
+4. **每个 Stage 完成后提示用户开新会话**: 用 compact 摘要做 handoff，避免单会话累积到 100k+ 后每轮为旧内容付费。新会话从 CLAUDE.md + compact 摘要起步，上下文更小。
+5. **工具结果及时消化**: 构建日志/测试输出读完后提取结论，不需要的内容不留在上下文里（比如 Keil 编译中间过程的 .c 文件列表无信息量）。
+
 ## Latest Stage 0 Baseline - 2026-06-11
 
 新增阶段记录：`doc/stage0_baseline_2026-06-11.md`。
@@ -69,6 +77,221 @@ Stage 1 (硬件 Bring-up) 代码完成, 详见 `docs/superpowers/specs/2026-06-2
 - 台架示波器验收待执行 (接好板子用 flash.bat 烧录, 看 PA8/PA9/PA10 = 16kHz 中心对齐 50%)
 - SPI2/CAN1/USART1/ADC2 时钟未开 (各模块 Stage 初始化时自行开启)
 
+## Stage 2 Complete - 2026-06-22
+
+Stage 2 (PWM 与开环控制) 代码完成, 详见 `docs/superpowers/specs/2026-06-22-mps-foc-design.md` §7 Stage 2.
+
+完成内容:
+- `foc_core.c` 实现:
+  - 自包含 sin/cos 查表 (256 点 + 线性插值, 误差 < 1.2e-4), 不依赖 CMSIS-DSP, ISR 时序确定性. spec §4.1 允许后期替换 arm_sin_cos_f32
+  - `foc_park` / `foc_ipark` (等幅值变换, 用 LUT)
+  - `foc_svpwm_3phase_high_side`: min-max 零序注入法 (与经典 7 段法 SVPWM 输出数值等价, 无扇区边界 bug, 过调制区由硬限幅自然退化六拍). 针对 MP6540H 3 路高边: 直接写 CCR1/2/3, 无互补/死区
+- `motor_control_isr.[ch]` 实现 OPEN_LOOP 模式:
+  - 角度斜坡: theta_e += speed_rad_per_s * dt (dt = 1/16000)
+  - Vd = 用户设定, Vq = 0 -> IPark -> SVPWM -> 写 CCR
+  - DISABLED/FAULT 强制 50% 三相同电位; FAULT 态同步关 MP6540H EN
+  - ISR 不调 RT-Thread API (spec §3.5 PRIMASK 约束)
+  - 暴露 `motor_control_isr_open_loop_start/stop/get_debug` 供 shell 调用
+- `motor_pwm_at32m412.[ch]` 新增:
+  - `TMR1_OVF_TMR10_IRQHandler`: TMR1 溢出中断 (16kHz 中心对齐顶点), 清标志后调 `motor_control_isr_tick()`
+  - `motor_pwm_at32m412_enable_ovf_irq / disable_ovf_irq`: NVIC + TMR_OVF_INT 使能控制
+- `motor_app.[ch]` 新增 `motor_app_get_control_rw()`: ISR / 开环接口需可写 motor_control 实例
+- `motor_shell.c` 新增 3 个 msh 命令: `mc_open` / `mc_stop` / `mc_debug`
+
+关键决策 (与 spec 原文不同):
+- SVPWM 用 min-max 零序注入而非经典扇区表: 数值等价但无扇区边界 bug, 实现更短更易验证. spec §4.2.3 单元测试检查的是 ta/tb/tc 输出值, min-max 结果吻合
+- VBUS 暂用固定 12V (ADC 采样 Stage 3 接入后替换为实测值)
+- 三角函数用自建 LUT 而非 CMSIS-DSP: 当前工程未编译进 arm_sin_cos_f32, 自建 LUT 零外部依赖, 后期可平滑替换
+
+资源占用 (Stage 2 完成后):
+- WSL GCC: FLASH 58920 B / 127 KB (45.31%), RAM 5976 B / 16 KB (36.47%)
+- Keil ARMCC -O1: Code 30764 + RO 3732, ZI 4948, 0 Error 0 Warning
+
+新增 msh 命令:
+
+| 命令 | 用途 |
+| --- | --- |
+| `mc_open <vd_volts> <speed_rpm_elec>` | 启动开环旋转 (vd 0..18V, 电角度 rpm 正=正转) |
+| `mc_stop` | 停止开环, 关 MP6540H, 切 DISABLED |
+| `mc_debug` | 打印 ISR 内部状态 (theta/valpha/vbeta/CCR/tick_count) |
+
+台架验收步骤 (首次让电机带电旋转, 必须限流电源):
+1. 接好 JLink + 板子, 限流电源设 12V 限流 0.3A
+2. `cd project\MDK_V5 && flash.bat rebuild` 烧录
+3. 串口连 PB6(TX)/PB7(RX) 115200, 见 msh 提示符
+4. `mc_state` 确认 state=DISABLED, fault=0
+5. `mc_open 1000 60` (1000mV=1V d 轴电压, 60rpm 电角度 ≈ 8.6rpm 机械 @7对极)
+6. 示波器看 PA8/PA9/PA10: 应为 16kHz 中心对齐, 三相互差 120°, 调制比 ~ m=1/12
+7. 电流探头看三相电流: 应为正弦, 平衡度 < 5%, 电流 < 设定限流值
+8. `mc_debug` 观察 theta_mrad 持续递增, v_alpha/v_beta 为正弦 (mV), CCR 在限幅内, ol_branch_hits 递增
+9. `mc_stop` 停止, 确认 MP6540H EN=低, PWM 回 50%
+10. 异常 (过流/异味/堵转) 立即 `mc_stop` 并记录
+
+关键约束 (调试发现):
+- **rt_kprintf 不支持 %f**: RT-Thread Nano kservice.c 是最小化整数 printf, %f 会原样打印为 "%f". 所有 shell 浮点输出必须转整数定点 (mV/mrad/mdeg/mrpm). mc_open 参数已改为整数毫伏 (vd_mv), 非 V.
+- **故障分级**: `FAULT_CAL_INVALID` 是告警级, 不阻止电机使能 (spec §4.7.3). ISR/mc_open 用 `fault_manager_any_fatal()` (FAULT_FATAL_MASK) 判断, 非 `fault_manager_any()`. 开机 motor_calibration_load() 必置 CAL_INVALID (Stage 4b 标定前无有效数据).
+- **finsh getchar 轮询限制**: `rt_hw_console_getchar()` (board.c) 是轮询读 USART, 无 RX 中断/FIFO. 一次性发送整行会 overrun 丢字符. 自动化测试必须逐字符发送+等待回显 (tests/com9_test.py). Stage 8+ 若需高频调试可改 RX 中断驱动.
+- **ISR 诊断计数器**: mc_debug 输出 ol_branch_hits/fault_hits/disabled_hits, 用于判断 ISR 走了哪个分支. 若 CCR=0 但 active=1, 先看这三个计数器定位.
+
+已知限制:
+- VBUS 固定 12V, Stage 3 接 ADC 后改实测
+- 开环不带编码器同步, 电机可能不转 (预期, spec §7 Stage 2 验收只要求三相电流正弦)
+- CURRENT/SPEED/POSITION 模式分支为空, Stage 5+ 填充
+
+## Stage 3 Complete - 2026-06-22
+
+Stage 3 (ADC 同步采样与电流反馈) 代码完成, 详见 spec §7 Stage 3.
+
+完成内容:
+- `current_sense_at32m412.[ch]` 实现:
+  - ADC2 注入序列 3 通道 [SOA(PB1/CH9), SOB(PB0/CH8), SOC(PA7/CH7)], TMR1_CH4 上升沿触发
+  - ADC2 普通序列 1 通道 [VBUS(PA6/CH6)], 软件触发读取
+  - ADC_CLK = 180MHz/6 = 30MHz, 12-bit, 电流采样 1.5 cycle, VBUS 13.5 cycle
+  - ADC 校准 (adc_calibration_init/start) + 各 while 循环超时保护 (防硬件异常挂死)
+  - 零偏标定: PWM 50% + MP6540H EN=HIGH 时采 1024 次平均, 偏差 < 50 LSB
+  - `current_sense_calc`: raw -> 安培 (gain ~3.16 mA/LSB typ)
+  - VBUS 软件触发读取: `current_sense_at32m412_read_vbus()` 返回电压 (V)
+- `motor_pwm_at32m412.c` 修改:
+  - CH4 从仅设比较值改为完整 `tmr_output_channel_config` (必须配置为输出比较才产生比较事件触发 ADC)
+  - **CH4 触发点从顶点 (ARR) 改为谷底 (1)**: MP6540H 电流镜仅在高边导通时反映相电流, 顶点采样高边关闭读数为 V_REF. 谷底三相高边全部导通, 是唯一保证三相均可测的采样点
+- `motor_control_isr.[ch]` 修改:
+  - ISR 每 tick 读 ADC 注入序列 (ia/ib/ic raw), 算电流 (A)
+  - VBUS 1kHz 分频采样 (16kHz/16), 缓存供 SVPWM 使用, 替代 Stage 2 硬编码 12V
+  - 欠压/过压检查 (与 VBUS 采样同步 1kHz)
+  - 过流保护: 任一相 |I| > 5A -> FAULT_OVERCURRENT
+  - 不平衡保护: |ia+ib+ic| > 1.5A -> FAULT_OVERCURRENT
+  - mc_debug 新增电流/VBUS/保护计数器快照
+- `motor_app.c` 修改: `motor_app_init()` 调用 `current_sense_at32m412_init()` (PWM 之后, ADC 由 TMR1_CH4 触发)
+- `motor_shell.c` 新增 3 个 msh 命令: `mc_current` / `mc_cal` / `vbus`
+
+关键决策 (与 spec 原文不同):
+- **CH4 触发点改为谷底**: spec §3.2 原设计顶点采样, 基于低边采样电阻拓扑. MP6540H 电流镜在高边关闭时输出 V_REF (零电流), 必须在高边导通时采样. 谷底 (counter≈0) 三相高边全部导通. 实测验证: 顶点采样 raw 全部接近 2048 (V_REF), 谷底采样能读到实际电流
+- **零偏窗口 50 LSB**: spec §4.3.3 原文 20 LSB. 实测零偏 ~2068 (偏差 22 LSB), 由 4.7k/4.7k 分压电阻 1% 容差 + MP6540H 偏置决定. 50 LSB = 0.16A, 安全范围内
+- **ADC2 时钟**: 需同时开 CRM_ADC1_PERIPH_CLOCK + CRM_ADC2_PERIPH_CLOCK (ADC common 配置依赖 ADC1 时钟). 仅开 ADC2 会导致 ADC 校准 while 循环挂死, 板子无法启动
+- **mc_cal 标定时使能 MP6540H**: 电流镜需芯片上电才能输出有效 V_REF. EN=LOW 时 SO 引脚偏置不正常
+
+资源占用 (Stage 3 完成后):
+- Keil ARMCC -O1: Code 27428 + RO 3780, ZI 4948, 0 Error 0 Warning
+
+新增 msh 命令:
+
+| 命令 | 用途 |
+| --- | --- |
+| `mc_current` | 打印三相电流 + VBUS 详细 (raw/offset/mA/mV) |
+| `mc_cal` | 零偏标定 (PWM 50% + MP6540H EN, 1024 次平均) |
+| `vbus` | 独立读取 VBUS 电压 (软件触发, 不依赖 ISR) |
+
+台架验证结果 (COM9 串口自动化测试):
+- VBUS 读取: 11.9V (3 次一致性 < 0.1V) ✓
+- 零偏标定: a=2068 b=2068 c=2064 (偏差 20-22 LSB < 50 LSB) PASS ✓
+- 静态电流 (50% PWM 无负载): ia=63 ib=-37 ic=91 mA (接近 0, 残余为噪声) ✓
+- 开环旋转 (1V/60rpm, 2V/120rpm): 电流 -116~138 mA, 无过流/不平衡故障 ✓
+- VBUS 旋转中稳定: 11.87-11.93V ✓
+- 停止后电流归零, fault=0x00 ✓
+
+关键约束 (调试发现):
+- **ADC2 时钟必须同时开 ADC1+ADC2**: 仅 CRM_ADC2_PERIPH_CLOCK 不够, ADC common 配置需 ADC1 时钟. 漏开会导致校准循环挂死
+- **CH4 必须调用 tmr_output_channel_config**: 仅 tmr_channel_value_set 设比较值不产生比较事件, ADC 注入序列无法触发. 参考工程 mc_hwio.c 同款做法
+- **MP6540H 电流镜采样时序**: 高边关闭时 I_LOAD=0, V_SO=V_REF=2048. 必须在高边导通期采样. 中心对齐谷底 (counter≈0) 三相高边全开, 是正确采样点
+- **ISR 读 ADC 时序**: TMR1_CH4 谷底触发 ADC -> 转换 3µs -> TMR1_OVF 顶点中断读结果. 延迟半个周期 (31µs), 对 16kHz 控制环可忽略
+
+## Stage 4 + 4b Complete - 2026-06-22
+
+Stage 4 (MA600A 有感角度闭环准备) + Stage 4b (旁轴非线性标定) 代码完成, 详见 spec §7 Stage 4/4b.
+
+完成内容:
+- `motor_encoder_at32m412.[ch]` 实现 (Stage 4):
+  - **SPI2 硬件初始化** (重建 Stage 0 清空的 wk_spi2_init): CRM_SPI2 时钟 + GPIO MUX (PB3/PB4/PB5 AF3) + spi_init (Mode1/MSB/16bit/DIV_64=2.8MHz/软件CS) + spi_enable. 参考 AT 官方 AS5047P.c
+  - `motor_encoder_read_angle_speed()`: 封装 ma600a_read_angle_and_speed_raw, 12-bit->16-bit 扩展, 失败递增 error_count
+  - `motor_encoder_to_electrical_angle()`: 旁轴查表校正 (256 点 Q16 插值, spec §4.7.6) -> 减零点 -> ×极对数 -> mod 2π
+  - 调试接口: get_last_raw / get_error_count / is_alive / set_zero / get_zero
+- `flash_calibration_at32m412.[ch]` 实现 (Stage 4b):
+  - `flash_calibration_read()`: memcpy 从 0x0801FC00 读 532 字节 -> 校验 magic/version -> CRC32 校验
+  - `flash_calibration_write()`: flash_unlock -> sector_erase -> word_program×133 -> flash_lock -> 回读校验
+  - `flash_calibration_erase()`: 擦除末页 sector
+  - `flash_calibration_crc32()`: 硬件 CRC (CRM_CRC 时钟 + crc_block_calculate), 默认 IEEE CRC-32, 处理任意字节长度 (尾部补 0)
+- `motor_calibration.[ch]` 实现 (Stage 4b):
+  - `motor_calibration_t` 结构体 (532 字节, 含编译期断言确保 <= 1KB)
+  - 标定状态机: IDLE -> ZERO_ALIGN -> SPIN_FWD -> SPIN_REV -> COMPUTE -> WRITE_FLASH -> DONE (+ ABORTED)
+  - `motor_calibration_tick()` (ISR 内): CAL_SPIN_FWD/REV 状态下累加 256 段直方图, 计数满自动切状态. 不调 RT-Thread API
+  - `motor_calibration_poll()` (线程): 处理 ALIGN 等待/COMPUTE/WRITE_FLASH/DONE/ABORTED. 含超时与故障中止
+  - `cal_compute_table()`: (hist_fwd+hist_rev)/2 去速度脉动 -> 去直流 -> LSB 转 0.001° -> 限幅 ±32767
+  - 开机加载: flash_calibration_read 成功则 g_cal_valid=true + 写零点; 失败置 FAULT_CAL_INVALID (告警级)
+  - RAM 占用: 两个 256×int32 直方图 (2KB) + s_cal (532B)
+- `motor_control.[ch]` 修改: 新增 `MOTOR_CONTROL_MODE_ALIGN` (模式 4), set_mode 范围检查更新
+- `motor_control_isr.[ch]` 修改:
+  - **ALIGN 模式分支**: theta=0 (固定 d 轴 0°), Vd=s_align_vd, Vq=0, 转子锁定. 前 400ms settle, 后 100ms 累加角度作零点
+  - **编码器读取**: ENABLED 状态每 tick 读 MA600A (~6µs), 连续 32 次失败置 FAULT_SENSOR
+  - **OPEN_LOOP --enc 开关**: `motor_control_isr_open_loop_set_encoder_angle(bool)`, true=用编码器电角度, false=纯斜坡 (向后兼容)
+  - **标定采集钩子**: ISR 末尾调 motor_calibration_tick()
+  - 新增接口: align_start/stop/get_align_angle, open_loop_set_encoder_angle
+  - debug 结构体扩展: enc_raw/enc_theta_mrad/enc_errors/enc_alive/align_hits/cal_state/cal_progress
+- `motor_app.c` 修改: motor_app_init 接入 motor_encoder_at32m412_init + ma600a_debug_init 恢复; motor_app_run 接入 motor_calibration_poll
+- `motor_shell.c` 修改:
+  - 扩展 `encoder`: raw_16bit/raw_12bit/angle_mdeg/elec_mrad/zero/errors/alive/cal_valid + ma600a_debug 全局变量
+  - 扩展 `mc_open`: 第三参数可选 `enc`/`ramp`
+  - 扩展 `mc_debug`: 新增 encoder/align/cal 快照行
+  - 新增 `mc_align <vd_mv>`: 启动 ALIGN 模式
+  - 新增 `mc_zero [raw16]`: 读取/设置零点
+  - 新增 `mc_calibrate`: 触发旁轴标定
+  - 新增 `mc_cal_status`: 标定状态/进度/残差
+  - 新增 `mc_cal_dump`: 打印 256 点表
+  - 新增 `mc_cal_erase`: 擦除 FLASH 标定区
+- `motor_params.h` 修改: CAL_HIST_BINS / CAL_CRC_PAYLOAD_SIZE / CAL_SPIN_TIMEOUT_MS / CAL_MAX_RESIDUAL_MDEG / ALIGN_VD_VOLTS / ALIGN_SETTLE_MS / ALIGN_SAMPLE_TICKS
+
+关键决策 (与 spec 原文不同):
+- **SPI2 时钟 DIV_64 (2.8125MHz)**: spec 参考 AS5047P 用 DIV_32 (5.625MHz), 但 MA600A 最大 SPI 时钟 4.16MHz, DIV_32 超限. DIV_64 安全且读角度耗时 ~6µs, ISR 62.5µs 预算充裕
+- **结构体实际 532 字节而非 spec 标注 528**: table 偏移 12 (非 8), 因 timestamp_ms(4) 在 reserved[3] 后无 padding. 产品代码用 sizeof 处理, 不硬编码. 已加编译期断言确保 <= 1KB FLASH sector
+- **ALIGN 零点采样用累加器而非环形缓冲**: spec §4.5.3 原意"最后 100ms 平均", 环形缓冲 1600×2=3.2KB RAM 太费. 改为前 400ms settle + 后 100ms 累加器平均, 省 RAM 且数学等价
+- **标定用纯斜坡开环而非编码器电角度**: 标定期间 OPEN_LOOP 用 ramp 模式 (set_encoder_angle(false)), 避免零点刚设影响采集. 编码器仅被动读取角度
+- **直方图箱内偏移中心化**: delta = raw - idx*256 - 128, 范围 -128..127 (而非 0..255), 便于去直流与限幅
+
+资源占用 (Stage 4+4b 完成后):
+- WSL GCC: FLASH 56292 B / 127 KB (43.29%), RAM 8408 B / 16 KB (51.32%)
+- 相比 Stage 3+finsh: FLASH +22324 B, RAM +2864 B (两个直方图 2KB + 标定结构体 0.5KB + 编码器/ALIGN 状态)
+
+新增 msh 命令:
+
+| 命令 | 用途 | Stage |
+| --- | --- | --- |
+| `mc_align <vd_mv>` | 启动 ALIGN 模式 (转子锁定 d 轴 0°) | 4 |
+| `mc_zero [raw16]` | 读取/设置编码器零点 | 4 |
+| `mc_calibrate` | 触发旁轴非线性标定 (~25s) | 4b |
+| `mc_cal_status` | 标定状态/进度/残差 | 4b |
+| `mc_cal_dump` | 打印 256 点校正表 | 4b |
+| `mc_cal_erase` | 擦除 FLASH 标定区 | 4b |
+
+扩展命令: `encoder` (新增 elec_mrad/zero/errors/alive/cal_valid), `mc_open` (新增 enc/ramp 第三参数), `mc_debug` (新增 encoder/align/cal 行)
+
+台架验收步骤 (首次接入编码器, 必须限流电源):
+1. 接好 JLink + 板子, 限流电源 12V 限流 0.5A
+2. `cd project\MDK_V5 && flash.bat rebuild` 烧录 (或 WSL cmake 产物用 JLink 烧)
+3. 串口连 PB6(TX)/PB7(RX) 115200, 见 msh 提示符
+4. `encoder` 确认: raw_16bit 随手转轴变化 (0..65535 连续无跳变), errors=0, alive=1
+5. `mc_align 1000` (1V): 转子锁定 d 轴 0°, 手转有阻力, 持续 500ms
+6. `mc_zero` 显示 ALIGN 采集的对齐角度, 确认写入零点
+7. `mc_open 1000 300 enc`: 开环用编码器电角度, 电流应正弦, 编码器跟踪
+8. `mc_calibrate`: 电机自动正反拖动 5+5 圈 (~25s), 期间 `mc_cal_status` 看进度
+9. 标定完成: `mc_cal_status` 显示 DONE, max_resid < 1000 mdeg (1°)
+10. `mc_cal_dump`: 256 点表非零, 数值在 ±32767 范围
+11. 断电重启: `fault` 无 CAL_INVALID, `encoder` cal_valid=1 (校正自动加载)
+12. `mc_cal_erase` + 重启: `fault` 有 CAL_INVALID, 可重新 `mc_calibrate`
+13. 异常 (过流/异味/堵转) 立即 `mc_stop` 并记录
+
+关键约束 (实现发现):
+- **SPI2 GPIO MUX_3**: PB3/PB4/PB5 的 AF3 = SPI2_SCK/MISO/MOSI (与 AT 官方 PB13/14/15 AF5 是同外设不同引脚不同复用号)
+- **MA600A SPI Mode 1**: CPOL=0 CPHA=1, 与 AS5047P 一致. 16-bit 帧, MSB first
+- **ISR 内 SPI 读取安全**: ma600a_read_angle_and_speed_raw 只用 delay_us 忙等 (~1µs), 不触发 RT-Thread API. delay_ms (rt_thread_mdelay) 仅在 ma600a_init 读 BCT 时用, 在线程上下文
+- **编码器连续失败 32 次置 FAULT_SENSOR**: 避免单次 SPI 干扰误触发, 但持续故障必须保护
+- **标定中止规则**: 任意阶段 fault_fatal 或超时 -> abort, 停电机, 状态回 IDLE, FLASH 不写, 旧标定保留
+
+已知限制:
+- ALIGN_VD_VOLTS 初值 1.0f (估算 1A×1Ω), 台架需实测相电阻后修正
+- 极对数仍为默认 7, 台架实测后改 motor_params.h MOTOR_POLE_PAIRS
+- CURRENT/SPEED/POSITION 模式分支仍为空 (50%), Stage 5+ 填充
+- 标定用开环恒速, 速度脉动影响残差; 闭环速度环 (Stage 6) 后可重标定提升精度
+- 单元测试 (test_motor_calibration.c) 验证算法数学 (结构体布局/CRC32/电角度/查表), 硬件交互需台架验证
+
 ## 调试串口 + msh 命令 - 2026-06-22
 
 finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭环验证.
@@ -102,6 +325,18 @@ finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭�
 | `fault` | 打印故障位明细 | 全 Stage |
 | `fault_clear` | 清除所有故障 | 全 Stage |
 | `encoder` | 打印 MA600A 角度/速度/状态 (Stage 4 接入后有效) | 4 |
+| `mc_open <vd_mv> <rpm_elec> [enc\|ramp]` | 启动开环旋转 (vd 毫伏, 电角度 rpm; enc=用编码器电角度) | 2/4 |
+| `mc_stop` | 停止开环, 关 MP6540H | 2 |
+| `mc_debug` | 打印 ISR 内部状态 (mrad/mV/CCR/tick/分支命中/电流/VBUS/编码器/标定) | 2+3+4 |
+| `mc_current` | 打印三相电流 + VBUS 详细 (raw/offset/mA/mV) | 3 |
+| `mc_cal` | 零偏标定 (PWM 50% + MP6540H EN, 1024 次平均) | 3 |
+| `vbus` | 独立读取 VBUS 电压 (软件触发) | 3 |
+| `mc_align <vd_mv>` | 启动 ALIGN 模式 (转子锁定 d 轴 0°) | 4 |
+| `mc_zero [raw16]` | 读取/设置编码器零点 | 4 |
+| `mc_calibrate` | 触发旁轴非线性标定 (~25s) | 4b |
+| `mc_cal_status` | 标定状态/进度/残差 | 4b |
+| `mc_cal_dump` | 打印 256 点校正表 | 4b |
+| `mc_cal_erase` | 擦除 FLASH 标定区 | 4b |
 
 finsh 自带命令: `help` / `ps` / `version` / `list_thread` / `free` / `reboot` 等.
 

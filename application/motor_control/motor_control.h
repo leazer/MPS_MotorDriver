@@ -27,7 +27,8 @@ typedef enum
     MOTOR_CONTROL_MODE_OPEN_LOOP = 0,
     MOTOR_CONTROL_MODE_CURRENT,
     MOTOR_CONTROL_MODE_SPEED,
-    MOTOR_CONTROL_MODE_POSITION
+    MOTOR_CONTROL_MODE_POSITION,
+    MOTOR_CONTROL_MODE_ALIGN      /* spec §4.5.3: 零点对齐, 固定 Vd 锁定转子到 d 轴 0° */
 } motor_control_mode_t;
 
 typedef enum

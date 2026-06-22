@@ -50,6 +50,13 @@ Thumbs.db
 *.orig
 *.bak
 
+# --- MDK (Keil) stray file (Windows nul device miscreated in Git Bash) ---
+project/MDK_V5/nul
+
+# --- Tests: keep scripts, ignore output logs ---
+tests/*_results.txt
+tests/*.log
+
 # --- Documentation: allow spec/plan markdown ---
 doc/*
 !doc/FOC控制器开发记录.md

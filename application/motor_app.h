@@ -16,6 +16,9 @@ void motor_app_run(void);
 /* 获取全局电机控制实例 (供 msh 命令查询状态) */
 const motor_control_t *motor_app_get_control(void);
 
+/* 获取可写全局电机控制实例 (供 ISR / 开环控制接口修改状态, 非 ISR 上下文调用) */
+motor_control_t *motor_app_get_control_rw(void);
+
 #ifdef __cplusplus
 }
 #endif

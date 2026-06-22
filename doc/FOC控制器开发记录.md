@@ -277,6 +277,9 @@ generated/
 | 2026-06-22 | 阶段 0 | 已验证 | 目录重构完成, 分层骨架建立 (application/platform/communication), CMake 构建通过, 资源占用 FLASH 14712B / RAM 3552B. wk_*_init 已清空, 外设初始化移至 platform 层 (Plan 2). 详见 `docs/superpowers/plans/2026-06-22-plan1-project-baseline.md`. |
 | 2026-06-22 | 阶段 1 | 代码完成 | board_init_at32m412 (时钟/GPIO/NVIC) + motor_pwm_at32m412 TMR1 中心对齐 16kHz 完成. sclk 保持 180MHz (ARR=5624). WSL FLASH 16440B / Keil Code 9602B. 台架示波器验收待执行. 详见 `docs/superpowers/specs/2026-06-22-mps-foc-design.md` §7 Stage 1. |
 | 2026-06-22 | 调试基础设施 | 代码完成 | finsh/msh 调试串口接入 (USART1 PB6/PB7 115200). 8 个电机 msh 命令 (pwm_info/pwm_duty/pwm_en/led/mc_state/fault/fault_clear/encoder). WSL FLASH 33968B / Keil Code 20936B. 台架串口验收待执行. |
+| 2026-06-22 | 阶段 2 | 代码完成 | foc_core (Clarke/Park/IPark/SVPWM + 自建 sin LUT) + motor_control_isr OPEN_LOOP + TMR1_OVF 中断 + mc_open/mc_stop/mc_debug. WSL FLASH 58920B. 台架开环旋转验收待执行. 详见 CLAUDE.md Stage 2. |
+| 2026-06-22 | 阶段 3 | 已验证 | current_sense_at32m412 ADC2 注入序列 + CH4 谷底触发 + 零偏标定 + 过流/不平衡保护. 台架验证: VBUS 11.9V, 零偏偏差 20-22 LSB, 开环电流 -116~138mA. Keil Code 27428B. 详见 CLAUDE.md Stage 3. |
+| 2026-06-22 | 阶段 4+4b | 代码完成 | MA600A SPI2 接入 (Mode1/2.8MHz) + 电角度换算 + ALIGN 零点对齐 + OPEN_LOOP enc 开关 + 旁轴标定 (FLASH/CRC/256段直方图/查表). 6 个新 msh 命令. WSL FLASH 56292B / RAM 8408B. 台架编码器+标定验收待执行. 详见 CLAUDE.md Stage 4+4b. |
 
 状态枚举：
 

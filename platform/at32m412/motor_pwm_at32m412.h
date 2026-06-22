@@ -23,6 +23,13 @@ void motor_pwm_at32m412_enable_output(void);
 /* 设置三相占空比 ticks (0..TMR1_ARR), 内部硬限幅 PWM_DUTY_MAX (95%) */
 void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint16_t phase_w);
 
+/* 使能 TMR1_OVF 中断 (16kHz, FOC ISR 触发). NVIC 优先级已在 board_nvic_init 设置.
+ * Stage 2: motor_control_isr_open_loop_start 调用, 之后 ISR 每周期执行一次. */
+void motor_pwm_at32m412_enable_ovf_irq(void);
+
+/* 禁用 TMR1_OVF 中断 (停止 FOC ISR) */
+void motor_pwm_at32m412_disable_ovf_irq(void);
+
 #ifdef __cplusplus
 }
 #endif
