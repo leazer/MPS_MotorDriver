@@ -15,6 +15,9 @@ cmake-build-*/
 # --- IDE: Visual Studio Code ---
 .vscode/
 
+# --- understand-anything knowledge graph (generated) ---
+.understand-anything/
+
 # --- IDE: MDK (Keil) uVision ---
 project/MDK_V5/Output/
 project/MDK_V5/objects/
