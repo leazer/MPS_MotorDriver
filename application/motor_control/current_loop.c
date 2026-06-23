@@ -29,12 +29,15 @@ static volatile float s_iq_ref = 0.0f;
 
 float pid_f32_exec(pid_f32_t *pid, float error)
 {
-    float p_out = pid->kp * error;
+    float p_out;
+    float out;
+
+    p_out = pid->kp * error;
     pid->integral += pid->ki * error * ISR_DT_S;   /* 离散积分 */
     /* 积分限幅 (clamping 抗 windup) */
     if (pid->integral >  pid->integral_limit) pid->integral =  pid->integral_limit;
     if (pid->integral < -pid->integral_limit) pid->integral = -pid->integral_limit;
-    float out = p_out + pid->integral;
+    out = p_out + pid->integral;
     /* 输出限幅 */
     if (out >  pid->out_limit) out =  pid->out_limit;
     if (out < -pid->out_limit) out = -pid->out_limit;
