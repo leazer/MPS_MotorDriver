@@ -66,6 +66,21 @@ bool motor_control_isr_align_active(void);
  * 供 motor_calibration_poll 在 ALIGN 结束时读取. */
 uint16_t motor_control_isr_get_align_angle(void);
 
+/* ===== CURRENT 模式接口 (Stage 5, spec-stage5 §5.3) =====
+ *
+ * CURRENT 模式 (spec §3.4 模式 1):
+ *   - Id 目标 = 0, Iq 目标 = iq_ref (用户/CAN 设置)
+ *   - Clarke -> Park(theta) -> 电流环 PI -> IPark -> SVPWM
+ *   - theta 来源: enc (编码器电角度, 需有效标定) 或 ramp (斜坡, 调试)
+ *
+ * 安全: 故障未清返回 -1. 启动时互斥清 OPEN_LOOP/ALIGN.
+ */
+int  motor_control_isr_current_start(float iq_ref_A);
+void motor_control_isr_current_stop(void);
+bool motor_control_isr_current_active(void);
+void motor_control_isr_current_set_encoder_angle(bool use_enc);
+void motor_control_isr_current_set_speed(float rad_per_s);
+
 /* 获取最近一次 ISR 内部状态 (供 msh 观察, 非强一致, 仅调试用)
  * 注意: 所有浮点字段改用定点 (毫伏/毫弧度/毫度) 表示, 因 RT-Thread
  * Nano rt_kprintf 不支持 %f, shell 打印需用整数.
@@ -99,6 +114,12 @@ typedef struct {
     uint32_t align_hits;    /* ALIGN 分支命中计数 */
     uint32_t cal_state;     /* 当前标定状态 (cal_state_t 镜像) */
     uint8_t  cal_progress;  /* 标定进度 0..100 */
+    /* Stage 5: 电流环快照 */
+    uint32_t cur_hits;      /* CURRENT 分支命中计数 */
+    int32_t  id_ma;         /* 实测 d 轴电流 (毫安) */
+    int32_t  iq_ma;         /* 实测 q 轴电流 (毫安) */
+    int32_t  id_ref_ma;     /* 目标 Id (毫安) */
+    int32_t  iq_ref_ma;     /* 目标 Iq (毫安) */
 } motor_control_isr_debug_t;
 
 void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg);
