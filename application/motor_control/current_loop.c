@@ -74,3 +74,13 @@ void current_loop_run(float id, float iq, float *vd_ref, float *vq_ref)
     *vd_ref = pid_f32_exec(&s_pid_d, s_id_ref - id);
     *vq_ref = pid_f32_exec(&s_pid_q, s_iq_ref - iq);
 }
+
+float current_loop_get_id_ref_A(void)
+{
+    return s_id_ref;
+}
+
+float current_loop_get_iq_ref_A(void)
+{
+    return s_iq_ref;
+}

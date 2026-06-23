@@ -22,6 +22,7 @@
 #include "fault_manager.h"
 #include "motor_params.h"
 #include "board_motor_pins.h"
+#include "current_loop.h"
 #include <math.h>
 
 #define ISR_DT_S            (1.0f / (float)PWM_FREQUENCY_HZ)   /* 62.5 µs */
@@ -57,6 +58,12 @@ static volatile bool     s_align_active;     /* ALIGN 是否激活 */
 static volatile uint32_t s_align_tick_cnt;   /* ALIGN 启动后累计 tick */
 static volatile uint32_t s_align_sum;        /* 采样窗口内角度累加和 */
 static volatile uint32_t s_align_sample_cnt; /* 采样窗口内已采样本数 */
+
+/* ===== Stage 5: CURRENT 模式参数 (ISR 读, shell 写) ===== */
+static volatile bool     s_cur_active;       /* CURRENT 模式是否激活 */
+static volatile bool     s_cur_use_enc;      /* theta 来源: true=编码器电角度, false=斜坡 (独立于 s_ol_use_enc) */
+static volatile float    s_cur_theta_e;      /* ramp 模式电角度 (rad, [0,2π)) */
+static volatile float    s_cur_speed_rad_s;  /* ramp 模式角速度 (rad/s), 调试用 */
 
 /* ===== 编码器读取状态 (Stage 4) ===== */
 static volatile uint16_t s_enc_raw16;        /* 最近一次编码器原始角度 (16-bit) */
@@ -96,6 +103,11 @@ static volatile uint8_t  s_dbg_enc_alive;
 static volatile uint32_t s_dbg_align_hits;
 static volatile uint32_t s_dbg_cal_state;
 static volatile uint8_t  s_dbg_cal_progress;
+
+/* Stage 5: 电流环快照 */
+static volatile uint32_t s_dbg_cur_hits;
+static volatile int32_t  s_dbg_id_ma;
+static volatile int32_t  s_dbg_iq_ma;
 
 /* VBUS 缓存 (1kHz 刷新, ISR 内直接用, 避免每 tick 软件触发 ADC) */
 static volatile float    s_vbus_cached = VBUS_FALLBACK_V;
@@ -294,10 +306,50 @@ void motor_control_isr_tick(void)
             motor_pwm_at32m412_set_duty_ticks(ta, tb, tc);
             break;
 
-        case MOTOR_CONTROL_MODE_CURRENT:
+        case MOTOR_CONTROL_MODE_CURRENT: {
+            float id, iq;
+            float i_alpha, i_beta;
+            float vd_ref, vq_ref;
+
+            if (!s_cur_active) {
+                motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+                return;
+            }
+            s_dbg_cur_hits++;
+
+            /* theta 来源 (enc/ramp). enc 模式依赖有效标定 (shell 层已拒 CAL_INVALID). */
+            if (s_cur_use_enc) {
+                theta = s_enc_theta_e;
+            } else {
+                s_cur_theta_e += s_cur_speed_rad_s * ISR_DT_S;
+                while (s_cur_theta_e < 0.0f)      s_cur_theta_e += TWO_PI_F;
+                while (s_cur_theta_e >= TWO_PI_F) s_cur_theta_e -= TWO_PI_F;
+                theta = s_cur_theta_e;
+            }
+            s_dbg_theta_mrad = (int32_t)(theta * RAD_TO_MRAD_F);
+
+            /* Clarke + Park: ia/ib/ic -> id/iq */
+            foc_clarke(ia, ib, ic, &i_alpha, &i_beta);
+            foc_park(i_alpha, i_beta, theta, &id, &iq);
+            s_dbg_id_ma = (int32_t)(id * 1000.0f);
+            s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+
+            /* 电流环 PI (Id 目标 0, Iq 目标 = current_loop_set_targets 设定值) */
+            current_loop_run(id, iq, &vd_ref, &vq_ref);
+
+            /* IPark + SVPWM */
+            foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
+            s_dbg_v_alpha_mv = (int32_t)(v_alpha * VOLTS_TO_MV_F);
+            s_dbg_v_beta_mv  = (int32_t)(v_beta  * VOLTS_TO_MV_F);
+            foc_svpwm_3phase_high_side(v_alpha, v_beta, vbus, &ta, &tb, &tc);
+            s_dbg_ta = ta; s_dbg_tb = tb; s_dbg_tc = tc;
+            motor_pwm_at32m412_set_duty_ticks(ta, tb, tc);
+            break;
+        }
+
         case MOTOR_CONTROL_MODE_SPEED:
         case MOTOR_CONTROL_MODE_POSITION:
-            /* Stage 5+ 实现, 暂输出 50% */
+            /* Stage 6+ 实现, 暂输出 50% */
             motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
             break;
 
@@ -337,6 +389,7 @@ int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s)
     s_ol_theta_e     = 0.0f;
     s_ol_active      = true;
     s_align_active   = false;   /* 互斥: 启动 open_loop 前清 ALIGN */
+    s_cur_active     = false;   /* 互斥: 清 CURRENT (Stage 5, 根因1对称清理) */
 
     /* 切模式 + 使能 */
     mc->mode  = MOTOR_CONTROL_MODE_OPEN_LOOP;
@@ -412,6 +465,7 @@ int motor_control_isr_align_start(float vd_volts)
     s_align_sum = 0u;
     s_align_sample_cnt = 0u;
     s_ol_active = false;   /* 互斥: 启动 ALIGN 前清 open_loop */
+    s_cur_active = false;  /* 互斥: 清 CURRENT (Stage 5, 根因1对称清理) */
 
     /* 切 ALIGN 模式 + 使能 */
     mc->mode = MOTOR_CONTROL_MODE_ALIGN;
@@ -458,6 +512,82 @@ uint16_t motor_control_isr_get_align_angle(void)
     return (uint16_t)(s_align_sum / s_align_sample_cnt);
 }
 
+/* ===== Stage 5: CURRENT 模式接口 (spec-stage5 §5.3) ===== */
+
+int motor_control_isr_current_start(float iq_ref_A)
+{
+    motor_control_t *mc;
+
+    /* 参数限幅: Iq 目标不超过 IQ_MAX_A (defense-in-depth, 同 open_loop_start) */
+    if (iq_ref_A < -IQ_MAX_A || iq_ref_A > IQ_MAX_A) {
+        return -2;
+    }
+
+    /* 致命故障未清不允许启动 */
+    if (fault_manager_any_fatal()) {
+        return -1;
+    }
+
+    /* 互斥: 清 OPEN_LOOP/ALIGN 残留 (Stage 4b 根因 1 教训) */
+    s_ol_active = false;
+    s_align_active = false;
+    s_ol_vd = 0.0f;
+    s_align_vd = 0.0f;
+
+    /* 清积分 + 设目标 (Id=0). reset 须在 ISR 非激活时调 (current_loop 约定).
+     * 注: s_cur_use_enc/s_cur_speed_rad_s 由调用方在 start 前通过
+     *     set_encoder_angle/set_speed 设置 (同 open_loop_start 取参数的风格),
+     *     不在此重置, 以免覆盖调用方意图. */
+    current_loop_reset();
+    current_loop_set_targets(0.0f, iq_ref_A);
+    s_cur_theta_e = 0.0f;
+    s_cur_active = true;
+
+    /* 切 CURRENT 模式 + 使能 (同 align_start 模式) */
+    mc = motor_app_get_control_rw();
+    mc->mode = MOTOR_CONTROL_MODE_CURRENT;
+    mc->state = MOTOR_CONTROL_STATE_ENABLED;
+
+    motor_pwm_at32m412_enable_output();
+    motor_pwm_at32m412_enable_ovf_irq();
+
+    return 0;
+}
+
+void motor_control_isr_current_stop(void)
+{
+    motor_control_t *mc;
+
+    s_cur_active = false;
+    s_cur_theta_e = 0.0f;
+    current_loop_reset();
+
+    motor_pwm_at32m412_disable_ovf_irq();
+    motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+    motor_pwm_at32m412_disable_output();
+
+    mc = motor_app_get_control_rw();
+    mc->state = MOTOR_CONTROL_STATE_DISABLED;
+}
+
+bool motor_control_isr_current_active(void)
+{
+    return s_cur_active;
+}
+
+void motor_control_isr_current_set_encoder_angle(bool use_enc)
+{
+    s_cur_use_enc = use_enc;
+}
+
+void motor_control_isr_current_set_speed(float rad_per_s)
+{
+    /* 限幅: 复用 OPEN_LOOP_SPEED_MAX 安全上界 (ramp 调试用, 同 open_loop) */
+    if (rad_per_s < -OPEN_LOOP_SPEED_MAX) rad_per_s = -OPEN_LOOP_SPEED_MAX;
+    if (rad_per_s >  OPEN_LOOP_SPEED_MAX) rad_per_s =  OPEN_LOOP_SPEED_MAX;
+    s_cur_speed_rad_s = rad_per_s;
+}
+
 void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
 {
     if (dbg == 0) {
@@ -489,4 +619,9 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->align_hits     = s_dbg_align_hits;
     dbg->cal_state      = s_dbg_cal_state;
     dbg->cal_progress   = s_dbg_cal_progress;
+    dbg->cur_hits       = s_dbg_cur_hits;
+    dbg->id_ma          = s_dbg_id_ma;
+    dbg->iq_ma          = s_dbg_iq_ma;
+    dbg->id_ref_ma      = (int32_t)(current_loop_get_id_ref_A() * 1000.0f);
+    dbg->iq_ref_ma      = (int32_t)(current_loop_get_iq_ref_A() * 1000.0f);
 }

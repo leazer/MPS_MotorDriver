@@ -3,6 +3,7 @@
 #include "motor_control.h"
 #include "fault_manager.h"
 #include "motor_calibration.h"
+#include "current_loop.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
@@ -40,6 +41,7 @@ void motor_app_init(void)
     fault_manager_init();
     motor_control_init(&s_motor_control);  /* 已有状态机 */
     motor_calibration_load();              /* 开机加载标定 (Stage 4b) */
+    current_loop_init();                   /* Stage 5: 电流环 PID 参数初始化 */
 
     /* MA600A 调试路径 (轮询读角度到全局变量, 供 encoder 命令观察).
      * Stage 4 起 ISR 也会读编码器, 此处保留作为非 ISR 上下文的独立观察路径. */

@@ -27,6 +27,9 @@ void current_loop_run(float id, float iq, float *vd_ref, float *vq_ref);
 void current_loop_set_targets(float id_ref_A, float iq_ref_A);
 /* 清积分 (模式切换/stop 时调用, 避免残留冲击). */
 void current_loop_reset(void);
+/* 读取当前目标 (A), 供 mc_debug 快照 (非强一致, 仅调试用). */
+float current_loop_get_id_ref_A(void);
+float current_loop_get_iq_ref_A(void);
 
 #ifdef __cplusplus
 }
