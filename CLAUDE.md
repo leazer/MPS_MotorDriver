@@ -402,6 +402,59 @@ Stage 4 (MA600A 有感角度闭环准备) + Stage 4b (旁轴非线性标定) 代
 - **mc_debug 的 enc_* 字段是 ISR 快照**: 需 ISR 运行过才有效, 静止时无效
 - **SPI GPIO mux 必须核对数据手册**: PB3/PB4/PB5 的 SPI2 复用号要对照 AT32M412 数据手册确认, mux 错会导致 MISO 拿不到数据 (通信"成功"但全 0), 易误判为软件时序问题
 
+## Stage 5 电流环 Complete - 2026-06-24
+
+Stage 5 (CURRENT 模式 Id/Iq PI 电流环) 代码完成, 详见 `docs/superpowers/specs/2026-06-22-stage5-current-loop-design.md` 与实现计划 `docs/superpowers/plans/2026-06-22-stage5-current-loop.md`.
+
+完成内容 (8 Task, subagent-driven + 两阶段 review):
+- `current_loop.c` 实现: pid_f32_exec (标准 PI + clamping 双重限幅) / current_loop_run / set_targets / reset / get_id_ref_A / get_iq_ref_A
+  - 复用 motor_params.h 既有 PID_ID_KP/KI + PID_IQ_KP/KI + PID_CURRENT_*_LIMIT (值 0.5/100, Vbus/2)
+  - ISR_DT_S 从 PWM_FREQUENCY_HZ 派生 (与 motor_control_isr.c 同一来源, 单一真相)
+  - s_id_ref/s_iq_ref volatile (shell 写/ISR 读, 同 ISR 约定)
+- `motor_control_isr.c` CURRENT 分支填充: Clarke->Park->电流环 PI->IPark->SVPWM
+  - theta 来源 enc/ramp 双支持 (独立 s_cur_use_enc, 模式隔离)
+  - 5 接口: current_start/stop/active/set_encoder_angle/set_speed
+  - 互斥清理 (根因1对称): current_start 清 OPEN_LOOP/ALIGN; open_loop_start/align_start 也清 s_cur_active
+  - current_start: IQ_MAX_A 限幅 (-2) + 故障检查 (-1), 切 mode+ENABLED+使能输出/IRQ
+  - current_stop: 清积分+disable_ovf_irq/disable_output+DISABLED (同 align_stop)
+- `motor_shell.c` 新增 `mc_cur <iq_ma> [enc|ramp] [rpm_elec]` (注: 与 mc_current 电流采样显示区分)
+  - shell 层前置检查: 故障/CAL_INVALID(enc 模式) 拒绝, IQ_MAX_MA 限幅
+  - mc_stop 加 current_stop + align_stop (原仅 open_loop_stop, 三模式互斥)
+  - mc_debug 加 cur 行 (active/hits/id/iq/id_ref/iq_ref mA)
+- `motor_params.h`: IQ_MAX_A 8.0->4.5 (< 过流 5.0A 留 0.5A 余量), IQ_MAX_MA 4500, CURRENT_RAMP_DEFAULT_RPM
+- `tests/motor_control/test_current_loop.c`: 6 个 PI 数学单元测试 (主机 gcc, 6/6 pass)
+- `tests/stage5_bench.py`: 串口自动验收 (A 前置 / B ramp / C 阶跃 / D enc)
+
+关键决策:
+- 方案 A (CURRENT 独立分支): 不动 OPEN_LOOP/ALIGN 已验证代码, 风险隔离
+- theta 用独立 s_cur_use_enc (非 s_ol_use_enc): 模式间状态隔离
+- enc 模式强制要有效标定表: shell 层 CAL_INVALID 拒绝, 避免坏表致电流环振荡
+- 输出限幅用既有 PID_CURRENT_OUT_LIMIT (= VBUS_OVERVOLTAGE/2 = 9V): 台架阶跃时若 SVPWM 过调制畸变, 降到 6V 一行改
+
+资源占用 (Stage 5 完成, WSL GCC):
+- FLASH: 59580 B / 127 KB = 45.81% (Stage 4b 基线 56552, +3028)
+- RAM: 9520 B / 16 KB = 58.11% (基线 9432, +88: 2x pid_f32_t 56B + ISR 变量 32B)
+- 0 Error 0 Warning (MSH_CMD_EXPORT 既有 ';' 警告不算)
+
+新增 msh 命令:
+| `mc_cur <iq_ma> [enc\|ramp] [rpm_elec]` | 启动电流环 (Iq 目标 mA, enc=编码器电角度/ramp=斜坡调试) | 5 |
+
+台架验收步骤 (限流电源 12V/0.5A):
+1. 烧录后串口连板, 见 msh 提示符
+2. `mc_cal` 零偏标定
+3. `mc_cur 500 ramp 300` -> 示波器看三相电流, 正弦幅值 ~0.5A, 频率 = 300/60×7 = 35Hz
+4. `mc_cur 500 ramp 300` -> `mc_cur 1000 ramp 300` 阶跃
+   - 示波器看 iq 波形: 上升 < 1ms, 超调 < 20%, 稳态误差 < 5%
+5. 有标定表后 `mc_cur 500 enc` -> 真正 FOC, 电流更干净
+6. 异常 (过流/振荡/异响) 立即 `mc_stop`
+7. 自动验收: `python tests/stage5_bench.py` (A/B/C/D 四段, 上升时间仍需示波器)
+
+已知限制:
+- Kp/Ki 初值 0.5/100 是估算 (R=1Ω/L=1mH), 台架阶跃标定 (振荡降 Kp, 慢升 Kp)
+- 上升时间 < 1ms 需示波器测, 脚本测不到 (finsh ~50ms 轮询)
+- enc 模式依赖标定表, 残差 3.66° 可能致 iq 纹波, Stage 6 闭环重标定降残差
+- 输出限幅 9V (VBUS_OV/2), 高于 12V 母线 SVPWM 线性区 (~6.9V), 阶跃时可能过调制畸变, 视情况降到 6V
+
 ## 调试串口 + msh 命令 - 2026-06-22
 
 finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭环验证.
@@ -436,9 +489,10 @@ finsh/msh 调试控制台已接入, 后续 Stage 可通过 msh 命令自主闭�
 | `fault_clear` | 清除所有故障 | 全 Stage |
 | `encoder` | 打印 MA600A 角度/速度/状态 (Stage 4 接入后有效) | 4 |
 | `mc_open <vd_mv> <rpm_elec> [enc\|ramp]` | 启动开环旋转 (vd 毫伏, 电角度 rpm; enc=用编码器电角度) | 2/4 |
-| `mc_stop` | 停止开环, 关 MP6540H | 2 |
-| `mc_debug` | 打印 ISR 内部状态 (mrad/mV/CCR/tick/分支命中/电流/VBUS/编码器/标定) | 2+3+4 |
+| `mc_stop` | 停止所有模式 (开环/ALIGN/电流环), 关 MP6540H | 2+4+5 |
+| `mc_debug` | 打印 ISR 内部状态 (mrad/mV/CCR/tick/分支命中/电流/VBUS/编码器/标定/电流环) | 2+3+4+5 |
 | `mc_current` | 打印三相电流 + VBUS 详细 (raw/offset/mA/mV) | 3 |
+| `mc_cur <iq_ma> [enc\|ramp] [rpm_elec]` | 启动电流环 (Iq 目标 mA, enc=编码器电角度/ramp=斜坡调试) | 5 |
 | `mc_cal` | 零偏标定 (PWM 50% + MP6540H EN, 1024 次平均) | 3 |
 | `vbus` | 独立读取 VBUS 电压 (软件触发) | 3 |
 | `mc_align <vd_mv>` | 启动 ALIGN 模式 (转子锁定 d 轴 0°) | 4 |
