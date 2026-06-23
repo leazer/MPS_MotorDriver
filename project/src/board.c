@@ -117,10 +117,6 @@ char rt_hw_console_getchar(void)
   {
     ch = usart_data_receive(USART1);
   }
-  else
-  {
-    rt_thread_mdelay(10);
-  }
  
   return ch;
 }
