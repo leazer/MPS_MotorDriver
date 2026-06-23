@@ -88,7 +88,9 @@ extern "C" {
 #define PID_IQ_KI                       100.0f
 #define PID_CURRENT_INTEGRAL_LIMIT      (VBUS_OVERVOLTAGE_THRESHOLD_V / 2.0f)
 #define PID_CURRENT_OUT_LIMIT           (VBUS_OVERVOLTAGE_THRESHOLD_V / 2.0f)
-#define IQ_MAX_A                        8.0f
+#define IQ_MAX_A                        4.5f          /* 电流环目标上限 (Stage 5: 8.0->4.5, < 过流 5.0A 留 0.5A 余量) */
+#define IQ_MAX_MA                       4500          /* mA, shell 层用 */
+#define CURRENT_RAMP_DEFAULT_RPM        300.0f        /* ramp 模式默认角速度 (电角度 rpm), 调试用 */
 
 /* 速度环 */
 #define PID_SPEED_KP                    0.01f
