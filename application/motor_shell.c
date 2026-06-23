@@ -163,14 +163,16 @@ static void mc_open(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_open, start open-loop: mc_open <vd_mv> <speed_rpm_elec> [enc|ramp]);
 
-/* ---- mc_stop: 停止开环, 切回 DISABLED, 关 MP6540H ---- */
+/* ---- mc_stop: 停止所有模式, 切回 DISABLED, 关 MP6540H ---- */
 static void mc_stop(int argc, char **argv)
 {
     (void)argc; (void)argv;
-    motor_control_isr_open_loop_stop();
-    rt_kprintf("OPEN_LOOP stopped. MP6540H EN=LOW, PWM=50%%, state=DISABLED\n");
+    motor_control_isr_current_stop();      /* Stage 5: 停电流环 */
+    motor_control_isr_align_stop();        /* Stage 4: 停 ALIGN */
+    motor_control_isr_open_loop_stop();    /* Stage 2: 停开环 */
+    rt_kprintf("all modes stopped. MP6540H EN=LOW, PWM=50%%, state=DISABLED\n");
 }
-MSH_CMD_EXPORT(mc_stop, stop open-loop and disable MP6540H);
+MSH_CMD_EXPORT(mc_stop, stop all motor modes and disable MP6540H);
 
 /* ---- mc_debug: 打印 ISR 内部状态 (定点: mrad/mV, 因 kprintf 不支持 %f) ---- */
 static void mc_debug(int argc, char **argv)
@@ -203,6 +205,11 @@ static void mc_debug(int argc, char **argv)
                dbg.align_hits, motor_control_isr_align_active() ? 1 : 0);
     rt_kprintf("cal       : state=%lu progress=%u%%\n",
                dbg.cal_state, (unsigned)dbg.cal_progress);
+    rt_kprintf("cur       : active=%d hits=%lu id=%ldmA iq=%ldmA id_ref=%ldmA iq_ref=%ldmA\n",
+               motor_control_isr_current_active() ? 1 : 0,
+               (unsigned long)dbg.cur_hits,
+               (long)dbg.id_ma, (long)dbg.iq_ma,
+               (long)dbg.id_ref_ma, (long)dbg.iq_ref_ma);
 }
 MSH_CMD_EXPORT(mc_debug, show FOC ISR internal state);
 
@@ -231,6 +238,74 @@ static void mc_current(int argc, char **argv)
                (long)(dbg.vbus_mv % 1000));
 }
 MSH_CMD_EXPORT(mc_current, show 3-phase current and VBUS detail);
+
+/* ---- mc_cur: 启动电流环 (CURRENT 模式, Stage 5) ----
+ * 注: 与 mc_current (电流采样显示) 区分, 本命令启动电流环控制.
+ *     mc_cur <iq_ma> [enc|ramp] [speed_rpm_elec]
+ *       iq_ma           : Iq 目标电流 (毫安), 范围 +-IQ_MAX_MA. Id 目标恒 0.
+ *       enc|ramp        : theta 来源. enc=编码器电角度 (需有效标定),
+ *                         ramp=斜坡递增 (调试用, 无需标定). 默认 enc.
+ *       speed_rpm_elec  : 仅 ramp 有效, 斜坡角速度 (电角度 rpm), 默认 0 (锁定方向).
+ */
+static void mc_cur(int argc, char **argv)
+{
+    long iq_ma;
+    float iq_A;
+    bool use_enc = true;
+    long speed_rpm = 0;
+
+    if (argc < 2) {
+        rt_kprintf("usage: mc_cur <iq_ma> [enc|ramp] [speed_rpm_elec]\n");
+        return;
+    }
+    iq_ma = strtol(argv[1], NULL, 0);
+    if (iq_ma > IQ_MAX_MA || iq_ma < -IQ_MAX_MA) {
+        rt_kprintf("FAIL: iq_ma range +-%d\n", IQ_MAX_MA);
+        return;
+    }
+    iq_A = (float)iq_ma / 1000.0f;
+
+    if (argc >= 3) {
+        if (rt_strcmp(argv[2], "ramp") == 0) {
+            use_enc = false;
+        } else if (rt_strcmp(argv[2], "enc") == 0) {
+            use_enc = true;
+        } else {
+            rt_kprintf("FAIL: mode must be enc or ramp\n");
+            return;
+        }
+    }
+    if (argc >= 4 && !use_enc) {
+        speed_rpm = strtol(argv[3], NULL, 0);
+    }
+
+    /* 前置检查 (shell 层, 不进 ISR) */
+    if (fault_manager_any_fatal()) {
+        rt_kprintf("FAIL: fault active, clear first (fault_clear)\n");
+        return;
+    }
+    if (use_enc && !motor_calibration_is_valid()) {
+        rt_kprintf("FAIL: cal invalid, run mc_calibrate or use ramp mode\n");
+        return;
+    }
+
+    /* 设 theta 来源 + 速度 (须在 start 前设, current_start 不重置以免覆盖) */
+    motor_control_isr_current_set_encoder_angle(use_enc);
+    if (!use_enc) {
+        float rad_per_s = (float)speed_rpm * 6.28318530718f / 60.0f;
+        motor_control_isr_current_set_speed(rad_per_s);
+    }
+
+    /* 启动 */
+    if (motor_control_isr_current_start(iq_A) != 0) {
+        rt_kprintf("FAIL: current start failed (fault or iq out of range)\n");
+        return;
+    }
+    rt_kprintf("current loop: iq_ref=%ldmA theta=%s%s\n",
+               (long)iq_ma, use_enc ? "enc" : "ramp",
+               (!use_enc && speed_rpm != 0) ? " spinning" : "");
+}
+MSH_CMD_EXPORT(mc_cur, start current loop: mc_cur <iq_ma> [enc|ramp] [rpm_elec]);
 
 /* ---- mc_cal: 零偏标定 (PWM 50% 时采 1024 次平均, spec §4.3.3) ----
  * 前置条件: PWM 已输出 50% (mc_stop 或开机默认), MP6540H 可使能或禁用.
