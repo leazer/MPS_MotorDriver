@@ -10,6 +10,7 @@
 
 #include "rtthread_app.h"
 #include "board_init_at32m412.h"
+#include "board_usart1_dma.h"
 
 #if defined(RT_USING_USER_MAIN) && defined(RT_USING_HEAP)
 /*
@@ -86,38 +87,19 @@ void rt_hw_board_init(void)
 }
 
 #ifdef RT_USING_CONSOLE
+/* USART1 后端: DMA TX 单次 + DMA RX 循环环形 buffer.
+ * 详见 platform/at32m412/board_usart1_dma.c.
+ * \n -> \r\n 翻译在 board_usart1_tx_dma_send_str 内部完成. */
 void rt_hw_console_output(const char *str)
 {
-  rt_size_t i = 0, size = 0;
-  char a = '\r';
-
-  size = rt_strlen(str);
-
-  for (i = 0; i < size; i++)
-  {
-    if (*(str + i) == '\n')
-    {
-      while(usart_flag_get(USART1, USART_TDBE_FLAG) == RESET);
-      usart_data_transmit(USART1, (uint16_t)a);
-      while(usart_flag_get(USART1, USART_TDC_FLAG) == RESET);
-    }
-    while(usart_flag_get(USART1, USART_TDBE_FLAG) == RESET);
-    usart_data_transmit(USART1, (uint16_t)(*(str + i)));
-    while(usart_flag_get(USART1, USART_TDC_FLAG) == RESET);
-  }
+  board_usart1_tx_dma_send_str(str);
 }
 #endif
 
 #ifdef RT_USING_FINSH
 char rt_hw_console_getchar(void)
 {
-  int ch = -1;
- 
-  if(usart_flag_get(USART1, USART_RDBF_FLAG) != RESET)
-  {
-    ch = usart_data_receive(USART1);
-  }
- 
-  return ch;
+  /* 无数据时返回 -1, finsh_thread_entry 主循环 (shell.c:487) 会 `continue`. */
+  return (char)board_usart1_rx_dma_getchar();
 }
 #endif

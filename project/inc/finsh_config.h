@@ -22,6 +22,11 @@
 //  <i>Enable command description
 #define FINSH_USING_DESCRIPTION
 //  </c>
+
+// <c1>Enable history mode
+//  <i>Enable history mode
+#define FINSH_USING_HISTORY
+//  </c>
 // </h>
 
 // <<< end of configuration section >>>

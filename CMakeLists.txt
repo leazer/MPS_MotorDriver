@@ -64,6 +64,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/platform/at32m412/flash_calibration_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/clock_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/board_init_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/board_usart1_dma.c
     ${CMAKE_SOURCE_DIR}/communication/can_protocol.c
     ${CMAKE_SOURCE_DIR}/communication/can_at32m412.c
     ${CMAKE_SOURCE_DIR}/project/src/ma600a_debug.c

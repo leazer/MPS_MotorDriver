@@ -1,5 +1,6 @@
 #include "board_init_at32m412.h"
 #include "board_motor_pins.h"
+#include "board_usart1_dma.h"
 #include "at32m412_416.h"
 
 /* spec §3.5 中断优先级 (NVIC_PRIORITY_GROUP_4: 4 位抢占 / 0 位子) */
@@ -118,4 +119,9 @@ void board_usart1_init(void)
     usart_parity_selection_config(USART1, USART_PARITY_NONE);
     usart_hardware_flow_control_set(USART1, USART_HARDWARE_FLOW_NONE);
     usart_enable(USART1, TRUE);
+
+    /* 启动 USART1 DMA TX/RX 后端 (MSH 控制台): RX 循环 DMA + TX 单次 DMA,
+     * 替代 board.c 中 rt_hw_console_output / rt_hw_console_getchar 的逐字节轮询,
+     * 解决 finsh 一次性粘贴整行被 RDR overrun 丢字符的问题. */
+    board_usart1_dma_init();
 }

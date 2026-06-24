@@ -313,7 +313,7 @@
           </ArmAdsMisc>
           <Cads>
             <interw>1</interw>
-            <Optim>1</Optim>
+            <Optim>2</Optim>
             <oTime>0</oTime>
             <SplitLS>0</SplitLS>
             <OneElfS>1</OneElfS>
@@ -325,11 +325,11 @@
             <wLevel>2</wLevel>
             <uThumb>0</uThumb>
             <uSurpInc>0</uSurpInc>
-            <uC99>0</uC99>
+            <uC99>1</uC99>
             <uGnu>0</uGnu>
             <useXO>0</useXO>
-            <v6Lang>1</v6Lang>
-            <v6LangP>1</v6LangP>
+            <v6Lang>3</v6Lang>
+            <v6LangP>3</v6LangP>
             <vShortEn>1</vShortEn>
             <vShortWch>1</vShortWch>
             <v6Lto>0</v6Lto>
@@ -482,6 +482,11 @@
               <FileName>board_init_at32m412.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\platform\at32m412\board_init_at32m412.c</FilePath>
+            </File>
+            <File>
+              <FileName>board_usart1_dma.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\platform\at32m412\board_usart1_dma.c</FilePath>
             </File>
             <File>
               <FileName>motor_pwm_at32m412.c</FileName>

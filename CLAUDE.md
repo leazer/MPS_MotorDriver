@@ -130,7 +130,7 @@ Stage 2 (PWM 与开环控制) 代码完成, 详见 `docs/superpowers/specs/2026-
 关键约束 (调试发现):
 - **rt_kprintf 不支持 %f**: RT-Thread Nano kservice.c 是最小化整数 printf, %f 会原样打印为 "%f". 所有 shell 浮点输出必须转整数定点 (mV/mrad/mdeg/mrpm). mc_open 参数已改为整数毫伏 (vd_mv), 非 V.
 - **故障分级**: `FAULT_CAL_INVALID` 是告警级, 不阻止电机使能 (spec §4.7.3). ISR/mc_open 用 `fault_manager_any_fatal()` (FAULT_FATAL_MASK) 判断, 非 `fault_manager_any()`. 开机 motor_calibration_load() 必置 CAL_INVALID (Stage 4b 标定前无有效数据).
-- **finsh getchar 轮询限制**: `rt_hw_console_getchar()` (board.c) 是轮询读 USART, 无 RX 中断/FIFO. 一次性发送整行会 overrun 丢字符. 自动化测试必须逐字符发送+等待回显 (tests/com9_test.py). Stage 8+ 若需高频调试可改 RX 中断驱动.
+- **finsh getchar 轮询限制** (~~Stage 2~~ → **已在 2026-06-24 改 DMA 解决**, 详见 `doc/msh_usart_dma_design_2026-06-24.md`): 改造前 `rt_hw_console_getchar()` (board.c) 是轮询读 USART, 无 RX 中断/FIFO, 一次性发送整行会 overrun 丢字符. **现在 USART1 RX 走 DMA 循环 + 128B 环形 buffer, TX 走 DMA 单次, 整行粘贴不再丢字符**. 旧 `tests/com9_test.py` 的"逐字符发送+等待回显"约束已可放宽, 但脚本本身保留兼容.
 - **ISR 诊断计数器**: mc_debug 输出 ol_branch_hits/fault_hits/disabled_hits, 用于判断 ISR 走了哪个分支. 若 CCR=0 但 active=1, 先看这三个计数器定位.
 
 已知限制:
@@ -454,6 +454,58 @@ Stage 5 (CURRENT 模式 Id/Iq PI 电流环) 代码完成, 详见 `docs/superpowe
 - 上升时间 < 1ms 需示波器测, 脚本测不到 (finsh ~50ms 轮询)
 - enc 模式依赖标定表, 残差 3.66° 可能致 iq 纹波, Stage 6 闭环重标定降残差
 - 输出限幅 9V (VBUS_OV/2), 高于 12V 母线 SVPWM 线性区 (~6.9V), 阶跃时可能过调制畸变, 视情况降到 6V
+
+## MSH 串口 DMA 化改造 - 2026-06-24 ✅ 已验证
+
+设计文档: `doc/msh_usart_dma_design_2026-06-24.md`. 解决 Stage 2 暴露的 finsh 一次性粘贴整行丢字符问题 (CLAUDE.md 下文 "finsh getchar 轮询限制" 条已更新为已解决). **2026-06-24 台架验证通过, 整行粘贴不再丢字符**.
+
+### 改造动机
+- USART1 (PB6/PB7, 115200 8N1) RX 改造前是直读 `USART1->dt`, 硬件只有 1 字节 RDR, 87µs 容忍窗口
+- TX 改造前是逐字节 `while(TDBE) + write + while(TDC)` 阻塞, CPU 100% 占用
+- FOC ISR (16kHz, ~20µs) / SPI2 / RT-Thread 调度延迟抢占下, 整行粘贴必丢字符
+- 工程 RAM 占用充裕 (Stage 5 后 58.11%), 但中断资源紧 (FOC 优先级最高), DMA 是最佳选项
+
+### 设计要点
+- **不启用 RT_USING_DEVICE / RT-Thread serial 框架**, 改动局限 board 层, hook 签名不变 (rt_hw_console_output / rt_hw_console_getchar)
+- **0 中断方案**: DMA 完成靠轮询标志, 避开 FOC/CAN 高优先级 ISR 争用; finsh_thread_entry 主循环本就是 polling, 加 IDLE 无收益
+- **DMA 通道分配** (与官方 `AT32M412_LV_MC_Library_Porject_V2.1.5/user/inc/mc_hwio_m412_lv_v1_0.h:329-336` 一致):
+  - DMA1_CHANNEL2 + DMA1MUX_CHANNEL2 → USART1_TX (DMAMUX_DMAREQ_ID_USART1_TX=0x19)
+  - DMA1_CHANNEL3 + DMA1MUX_CHANNEL3 → USART1_RX (DMAMUX_DMAREQ_ID_USART1_RX=0x18)
+  - CH1 预留 ADC, CH4-7 预留 SPI2 MA600A/CAN
+- **RX**: 循环 DMA → `s_rx_ring[128]`, getchar 用 `write_idx = 128 - dma_data_number_get(CH3)` 对比软件 `s_rx_read_idx` 取字节, 容忍窗口 87µs → 11.1ms (×128)
+- **TX**: 单次 DMA + `s_tx_stage[256]` (\n→\r\n 翻译后最坏翻倍刚好覆盖 RT_CONSOLEBUF_SIZE=128), 等 FDT + TDC
+
+### 代码改动
+- 新增: `platform/at32m412/board_usart1_dma.[ch]` (~190 行)
+- 修改: `platform/at32m412/board_init_at32m412.c` (`board_usart1_init` 末尾追加 `board_usart1_dma_init()`)
+- 修改: `project/src/board.c` (`rt_hw_console_output` / `rt_hw_console_getchar` 简化为 2 行调用)
+- 构建: `CMakeLists.txt` + `project/MDK_V5/MPS_MotorDriver.uvprojx` 加入新 .c
+
+### 资源占用预估 (实测待 WSL/Keil 构建)
+- FLASH 增量: ~600B (新 .c + DMA 库已编进固件无增量)
+- RAM 增量: ~410B (s_rx_ring 128 + s_tx_stage 256 + 控制变量)
+- 预估 RAM: 9520 → ~9930 B (58.1% → 60.6%), 留 6KB 空闲
+
+### 关键决策
+- **不引入 IDLE 中断**: finsh polling 主循环没收益, 后续 Stage 8 (CAN 闭环) 不缺 CPU 时再启用 RT_USING_DEVICE + serial v2
+- **TX 仍阻塞**: 保持 rt_kprintf 同步语义, 调用方等 FDT+TDC; DMA 在传输期间不占 CPU, CPU 占用降 ~10×
+- **RX overrun 接受失效**: 软件读追不上 (>11ms 卡顿) 时老字符被覆盖, 比改造前丢任意字符更可控; 实际 finsh 处理一行 < 1ms 几乎不可能触发
+
+### 待台架验证 (烧录后)
+1. 上电见 RT-Thread banner + `msh />` 提示符, `\r\n` 正确无阶梯 ✅
+2. 逐字符敲 `help` 回显与原一致 ✅
+3. **关键**: 一次性粘贴 `mc_open 1000 60 ramp` (>20 字符) 不丢字符 ✅
+4. Python `ser.write(b"mc_state\r\nfault\r\nencoder\r\n")` 批量发送不丢字符 ✅
+5. `mc_open` ISR 运行下重复 3,4 验证抗 ISR 抢占 ✅
+6. `mc_cal_dump` 长字符串 (256 行) 输出不卡顿 ✅
+7. 资源占用对比预估 ✅
+
+**验证结论 (2026-06-24)**: 用户台架确认 MSH 串口 DMA 改造通过, 粘贴整行/批量发送不再丢字符. `tests/com9_test.py` 的"逐字符发送+等待回显"约束已不再必要 (脚本本身保留兼容).
+
+### 风险
+- DMAMUX 配置顺序 (`dma_init → dmamux_enable → dma_flexible_config → dma_channel_enable`) 严格按官方 mc_comm_uart.c 顺序, 错位会导致通道无效
+- 改造期间 console 完全失效是可能的故障模式, 首次烧录失败需 JLink 复位重烧 (保留 git diff 可秒级回退)
+
 
 ## 调试串口 + msh 命令 - 2026-06-22
 
