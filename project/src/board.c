@@ -97,9 +97,11 @@ void rt_hw_console_output(const char *str)
 #endif
 
 #ifdef RT_USING_FINSH
-char rt_hw_console_getchar(void)
+/* 返回 int 而非 char: -1 表示无数据 (finsh_getchar 用 ch<0 判断).
+ * 若返回 char, -1 经 char 截断变 0xFF, 提升回 int 变 255 (>0),
+ * shell 误当有效字符处理, 破坏方向键 ESC 序列状态机 (ESC 后插入假 0xFF). */
+int rt_hw_console_getchar(void)
 {
-  /* 无数据时返回 -1, finsh_thread_entry 主循环 (shell.c:487) 会 `continue`. */
-  return (char)board_usart1_rx_dma_getchar();
+  return board_usart1_rx_dma_getchar();
 }
 #endif
