@@ -50,8 +50,6 @@ static void current_sense_gpio_init(void)
     gpio_init_type gpio_init_struct;
     gpio_default_para_init(&gpio_init_struct);
     gpio_init_struct.gpio_mode = GPIO_MODE_ANALOG;
-    gpio_init_struct.gpio_out_type = GPIO_OUTPUT_OPEN_DRAIN;
-    gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
 
     /* SOA (PB1), SOB (PB0) */
     gpio_init_struct.gpio_pins = SOA_PIN | SOB_PIN;
