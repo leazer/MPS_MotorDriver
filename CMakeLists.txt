@@ -53,6 +53,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_control_isr.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/fault_manager.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_calibration.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/encoder_service.c
     ${CMAKE_SOURCE_DIR}/application/motor_app.c
     ${CMAKE_SOURCE_DIR}/application/motor_shell.c
     ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a.c
@@ -67,7 +68,6 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/platform/at32m412/board_usart1_dma.c
     ${CMAKE_SOURCE_DIR}/communication/can_protocol.c
     ${CMAKE_SOURCE_DIR}/communication/can_at32m412.c
-    ${CMAKE_SOURCE_DIR}/project/src/ma600a_debug.c
 )
 
 # Add include paths
@@ -91,3 +91,4 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
 
     # Add user defined libraries
 )
+

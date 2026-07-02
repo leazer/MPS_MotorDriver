@@ -24,6 +24,8 @@ extern "C" {
                                                           /* ~3.16e-3 A/LSB typ */
 #define IQ_OVERCURRENT_A                5.0f
 #define IMBALANCE_THRESHOLD_A           1.5f
+#define IMBALANCE_DEBOUNCE_TICKS        100u  /* 连续 N tick 不平衡才触发故障 (防 ADC 开关噪声毛刺爆发, Stage 5 调试发现).
+                                              * 100 tick = 6.25ms, 真实硬件故障会持续, 毛刺爆发不会持续这么久. */
 
 /* ===== VBUS 母线电压 (spec §4.3.6, 分压比 1/6) ===== */
 #define VBUS_DIVIDER_RATIO              6.0f
@@ -86,8 +88,9 @@ extern "C" {
 #define PID_ID_KI                       100.0f
 #define PID_IQ_KP                       0.5f
 #define PID_IQ_KI                       100.0f
-#define PID_CURRENT_INTEGRAL_LIMIT      (VBUS_OVERVOLTAGE_THRESHOLD_V / 2.0f)
-#define PID_CURRENT_OUT_LIMIT           (VBUS_OVERVOLTAGE_THRESHOLD_V / 2.0f)
+#define PID_CURRENT_INTEGRAL_LIMIT      6.0f   /* 与 out_limit 一致, 防积分饱和超过输出限幅 */
+#define PID_CURRENT_OUT_LIMIT           6.0f   /* SVPWM 线性区上限 ~Vbus/sqrt(3)≈6.93V (12V母线).
+                                                * Stage 5 验收: 9V 致过调制→OC, 降到 6V 安全 (CLAUDE.md 已记). */
 #define IQ_MAX_A                        4.5f          /* 电流环目标上限 (Stage 5: 8.0->4.5, < 过流 5.0A 留 0.5A 余量) */
 #define IQ_MAX_MA                       4500          /* mA, shell 层用 */
 #define CURRENT_RAMP_DEFAULT_RPM        300.0f        /* ramp 模式默认角速度 (电角度 rpm), 调试用 */

@@ -38,6 +38,22 @@ typedef enum {
     CAL_STATE_ABORTED       /* 中止 (故障/用户停止) */
 } cal_state_t;
 
+typedef enum {
+    CAL_MODE_AUTO_OPEN_LOOP = 0,
+    CAL_MODE_MANUAL = 1
+} cal_mode_t;
+
+typedef struct {
+    uint32_t sample_count;
+    uint16_t covered_bins;
+    uint16_t min_bin_count;
+    uint32_t spike_count_start;
+    uint32_t spike_count_end;
+    uint32_t nonmonotonic_count;
+    int16_t  max_residual_mdeg;
+    uint8_t  quality_ok;
+} motor_calibration_quality_t;
+
 /* ===== 开机加载 (spec §4.7.7) ===== */
 /* 从 FLASH 读取标定, 校验 magic/version/CRC. 成功 -> g_cal_valid=true + 写入零点;
  * 失败 -> g_cal_valid=false + 置 FAULT_CAL_INVALID (告警级, 不阻止使能). */
@@ -49,6 +65,9 @@ const motor_calibration_t *motor_calibration_get(void);
 /* 仅置状态机为 CAL_ZERO_ALIGN, 实际推进在 motor_calibration_poll() 内.
  * 前置: 故障已清, 当前非 ENABLED (不能与开环/闭环并发). */
 void motor_calibration_start(void);
+void motor_calibration_start_mode(cal_mode_t mode);
+void motor_calibration_stop_manual(void);
+bool motor_calibration_get_quality(motor_calibration_quality_t *out);
 cal_state_t motor_calibration_get_state(void);
 uint8_t motor_calibration_get_progress(void);   /* 0..100 */
 

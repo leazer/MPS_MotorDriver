@@ -110,6 +110,8 @@ typedef struct {
     uint16_t enc_raw;       /* 编码器原始角度 (16-bit) */
     int32_t  enc_theta_mrad;/* 编码器电角度 (毫弧度) */
     uint16_t enc_errors;    /* 编码器读取失败计数 */
+    uint32_t enc_spikes;    /* 编码器尖峰拒绝计数 */
+    uint32_t enc_bus_errors;/* 编码器总线错误计数 */
     uint8_t  enc_alive;     /* 编码器存活 (0/1) */
     uint32_t align_hits;    /* ALIGN 分支命中计数 */
     uint32_t cal_state;     /* 当前标定状态 (cal_state_t 镜像) */

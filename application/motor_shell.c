@@ -14,9 +14,11 @@
 
 #include "board_motor_pins.h"
 #include "at32m412_416.h"
+#include "board_led_at32m412.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
+#include "encoder_service.h"
 #include "motor_control.h"
 #include "motor_control_isr.h"
 #include "motor_calibration.h"
@@ -24,7 +26,6 @@
 #include "fault_manager.h"
 #include "motor_params.h"
 #include "motor_app.h"
-#include "ma600a_debug.h"
 
 /* ---- pwm_info: 打印 TMR1 PWM 配置 ---- */
 static void pwm_info(int argc, char **argv)
@@ -87,11 +88,7 @@ static void led(int argc, char **argv)
         return;
     }
     on = atoi(argv[1]);
-    if (on) {
-        gpio_bits_reset(LED_GPIO_PORT, LED_PIN);   /* 低电平点亮 */
-    } else {
-        gpio_bits_set(LED_GPIO_PORT, LED_PIN);     /* 高电平熄灭 */
-    }
+    board_led_at32m412_set(on ? true : false);
     rt_kprintf("LED=%d\n", on);
 }
 MSH_CMD_EXPORT(led, control LED: led <0|1>);
@@ -413,14 +410,6 @@ static void encoder(int argc, char **argv)
     rt_kprintf("errors    : %u\n", motor_encoder_get_error_count());
     rt_kprintf("alive     : %d\n", motor_encoder_is_alive() ? 1 : 0);
     rt_kprintf("cal_valid : %d\n", motor_calibration_is_valid() ? 1 : 0);
-    /* ma600a_debug 全局变量 (非 ISR 轮询路径) */
-    rt_kprintf("dbg_raw   : %u\n", g_ma600a_raw_angle);
-    rt_kprintf("dbg_mdeg  : %ld\n", (long)(g_ma600a_angle_deg * 1000.0f));
-    rt_kprintf("dbg_spd   : %d (mrpm %ld)\n",
-               g_ma600a_speed_raw, (long)(g_ma600a_speed_rpm * 1000.0f));
-    rt_kprintf("dbg_stat  : %d, samples %u, errors %u\n",
-               (int)g_ma600a_status,
-               g_ma600a_sample_count, g_ma600a_error_count);
 }
 MSH_CMD_EXPORT(encoder, show MA600A encoder angle and speed);
 
@@ -516,7 +505,7 @@ static void mc_calibrate(int argc, char **argv)
         rt_kprintf("FAIL: motor running. Run 'mc_stop' first.\n");
         return;
     }
-    motor_calibration_start();
+    motor_calibration_start_mode(CAL_MODE_AUTO_OPEN_LOOP);
     rt_kprintf("Calibration started. ~25s (ALIGN 0.5s + FWD 10s + REV 10s + compute + flash).\n");
     rt_kprintf("Progress: 'mc_cal_status'. Motor will spin automatically.\n");
 }
@@ -582,3 +571,117 @@ static void mc_cal_erase(int argc, char **argv)
     }
 }
 MSH_CMD_EXPORT(mc_cal_erase, erase FLASH calibration sector);
+
+/* ---- enc_status: 打印 encoder_service 快照与诊断 ---- */
+static void enc_status(int argc, char **argv)
+{
+    encoder_snapshot_t snap;
+    bool motor_active;
+
+    (void)argc; (void)argv;
+    motor_active = motor_control_isr_open_loop_active() ||
+                   motor_control_isr_align_active() ||
+                   motor_control_isr_current_active();
+
+    if (!motor_active) {
+        (void)encoder_service_poll_once_thread();
+    }
+
+    if (!encoder_service_get_snapshot(&snap)) {
+        rt_kprintf("encoder snapshot invalid\n");
+        return;
+    }
+
+    rt_kprintf("=== encoder service ===\n");
+    rt_kprintf("raw16     : %u\n", snap.raw16);
+    rt_kprintf("delta     : %d\n", snap.raw_delta);
+    rt_kprintf("unwrap    : %ld\n", (long)snap.raw_unwrapped);
+    rt_kprintf("mech_mdeg : %ld\n", (long)snap.mech_mdeg);
+    rt_kprintf("elec_mrad : %ld\n", (long)snap.elec_mrad);
+    rt_kprintf("speed_raw : %d\n", snap.speed_raw);
+    rt_kprintf("counts    : sample=%lu accept=%lu bus=%lu spike=%lu stale=%lu\n",
+               snap.sample_count, snap.accept_count, snap.bus_error_count,
+               snap.spike_count, snap.stale_count);
+    rt_kprintf("last_rej  : raw=%u delta=%d\n",
+               snap.last_rejected_raw16, snap.last_rejected_delta);
+    rt_kprintf("zero_raw  : %u\n", encoder_service_get_zero());
+    rt_kprintf("cal_valid : %d\n", motor_calibration_is_valid() ? 1 : 0);
+}
+MSH_CMD_EXPORT(enc_status, show encoder service snapshot and diagnostics);
+
+static void enc_diag_reset(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    encoder_service_reset_diagnostics();
+    rt_kprintf("encoder diagnostics reset\n");
+}
+MSH_CMD_EXPORT(enc_diag_reset, reset encoder diagnostics);
+
+static void enc_zero(int argc, char **argv)
+{
+    long raw;
+
+    if (argc == 1) {
+        rt_kprintf("zero_raw  : %u\n", encoder_service_get_zero());
+        return;
+    }
+    raw = strtol(argv[1], NULL, 0);
+    if ((raw < 0) || (raw > 65535)) {
+        rt_kprintf("FAIL: raw must be 0..65535\n");
+        return;
+    }
+    motor_calibration_set_zero((uint16_t)raw);
+    rt_kprintf("zero set to %u\n", (unsigned)raw);
+}
+MSH_CMD_EXPORT(enc_zero, get/set encoder zero: enc_zero [raw16]);
+
+static void enc_cal_start(int argc, char **argv)
+{
+    cal_mode_t mode;
+
+    mode = CAL_MODE_AUTO_OPEN_LOOP;
+    if (argc >= 2) {
+        if (rt_strcmp(argv[1], "manual") == 0) {
+            mode = CAL_MODE_MANUAL;
+        } else if (rt_strcmp(argv[1], "auto") == 0) {
+            mode = CAL_MODE_AUTO_OPEN_LOOP;
+        } else {
+            rt_kprintf("usage: enc_cal_start [auto|manual]\n");
+            return;
+        }
+    }
+    motor_calibration_start_mode(mode);
+    rt_kprintf("encoder calibration started: %s\n",
+               (mode == CAL_MODE_MANUAL) ? "manual" : "auto");
+}
+MSH_CMD_EXPORT(enc_cal_start, start encoder calibration: enc_cal_start [auto|manual]);
+
+static void enc_cal_stop(int argc, char **argv)
+{
+    (void)argc; (void)argv;
+    motor_calibration_stop_manual();
+    rt_kprintf("encoder manual calibration stop requested\n");
+}
+MSH_CMD_EXPORT(enc_cal_stop, stop manual encoder calibration collection);
+
+static void enc_cal_status(int argc, char **argv)
+{
+    motor_calibration_quality_t q;
+
+    (void)argc; (void)argv;
+    mc_cal_status(0, 0);
+    if (motor_calibration_get_quality(&q)) {
+        rt_kprintf("quality   : samples=%lu bins=%u min_bin=%u residual=%d ok=%u\n",
+                   q.sample_count, q.covered_bins, q.min_bin_count,
+                   q.max_residual_mdeg, q.quality_ok);
+        rt_kprintf("spikes    : start=%lu end=%lu nonmono=%lu\n",
+                   q.spike_count_start, q.spike_count_end, q.nonmonotonic_count);
+    }
+}
+MSH_CMD_EXPORT(enc_cal_status, show encoder calibration status and quality);
+
+static void enc_cal_dump(int argc, char **argv)
+{
+    mc_cal_dump(argc, argv);
+}
+MSH_CMD_EXPORT(enc_cal_dump, dump encoder calibration table);

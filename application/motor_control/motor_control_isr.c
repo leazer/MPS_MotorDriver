@@ -17,7 +17,7 @@
 #include "foc_core.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
-#include "motor_encoder_at32m412.h"
+#include "encoder_service.h"
 #include "motor_calibration.h"
 #include "fault_manager.h"
 #include "motor_params.h"
@@ -94,11 +94,14 @@ static volatile uint16_t s_dbg_ib_raw;
 static volatile uint16_t s_dbg_ic_raw;
 static volatile uint32_t s_dbg_oc_hits;     /* 过流保护命中计数 */
 static volatile uint32_t s_dbg_imbal_hits;  /* 电流不平衡命中计数 */
+static uint16_t          s_imbal_consec;    /* 连续不平衡计数 (防单拍 ADC 毛刺误触发) */
 
 /* Stage 4: 编码器 + ALIGN + 标定快照 */
 static volatile uint16_t s_dbg_enc_raw;
 static volatile int32_t  s_dbg_enc_theta_mrad;
 static volatile uint16_t s_dbg_enc_errors;
+static volatile uint32_t s_dbg_enc_spikes;
+static volatile uint32_t s_dbg_enc_bus_errors;
 static volatile uint8_t  s_dbg_enc_alive;
 static volatile uint32_t s_dbg_align_hits;
 static volatile uint32_t s_dbg_cal_state;
@@ -144,7 +147,7 @@ void motor_control_isr_tick(void)
     float    gain;
 
     s_dbg_tick_count++;
-
+    board_led_at32m412_set(true);
     mc = motor_app_get_control_rw();
 
     /* ===== Stage 3: 读 ADC 注入序列 (硬件已由 TMR1_CH4 顶点触发完成) ===== */
@@ -187,11 +190,18 @@ void motor_control_isr_tick(void)
         s_dbg_oc_hits++;
         fault_manager_set(FAULT_OVERCURRENT);
     }
-    /* 不平衡: ia+ib+ic 应接近 0 (基尔霍夫), 超阈值视为故障 */
+    /* 不平衡: ia+ib+ic 应接近 0 (基尔霍夫), 超阈值视为故障.
+     * 防毛刺: 连续 IMBALANCE_DEBOUNCE_TICKS 才锁存故障 (Stage 5 调试发现
+     * 电流环启动瞬态 PWM 切换时单拍 ADC 毛刺可致 i_sum 瞬超阈值). */
     i_sum = ia + ib + ic;
     if (fabsf(i_sum) > IMBALANCE_THRESHOLD_A) {
         s_dbg_imbal_hits++;
-        fault_manager_set(FAULT_OVERCURRENT);
+        s_imbal_consec++;
+        if (s_imbal_consec >= IMBALANCE_DEBOUNCE_TICKS) {
+            fault_manager_set(FAULT_OVERCURRENT);
+        }
+    } else {
+        s_imbal_consec = 0u;
     }
 
     /* 故障态: 强制关 PWM 输出 + 50% 三相同电位, 不出力 (spec §3.3)
@@ -210,35 +220,48 @@ void motor_control_isr_tick(void)
         return;
     }
 
-    /* ===== Stage 4: 编码器读取 (ENABLED 状态下每 tick 读, ~6µs) ===== */
+    /* ===== Stage 4: 编码器读取 (ENABLED 状态下每 tick 更新唯一 service 快照) ===== */
     {
-        uint16_t enc_raw = 0u;
-        int16_t  enc_spd = 0;
-        if (motor_encoder_read_angle_speed(&enc_raw, &enc_spd) == 0) {
-            s_enc_raw16 = enc_raw;
-            s_enc_speed_raw = enc_spd;
-            s_enc_theta_e = motor_encoder_to_electrical_angle(enc_raw);
-            s_enc_consec_fail = 0u;
+        encoder_snapshot_t enc_snap;
+        int enc_ret;
+
+        enc_ret = encoder_service_update_from_isr();
+        if (encoder_service_get_snapshot(&enc_snap)) {
+            s_enc_raw16 = enc_snap.raw16;
+            s_enc_speed_raw = enc_snap.speed_raw;
+            s_enc_theta_e = ((float)enc_snap.elec_mrad) / RAD_TO_MRAD_F;
+            s_enc_error_cnt = (uint16_t)(enc_snap.bus_error_count + enc_snap.spike_count);
+            if (enc_ret == 0) {
+                s_enc_consec_fail = 0u;
+            } else if (enc_ret == -1) {
+                s_enc_consec_fail++;
+            }
 
             /* ALIGN 期间: settle 期后开始采样累加 (供 get_align_angle 平均) */
-            if (s_align_active) {
+            if ((enc_ret == 0) && s_align_active) {
                 s_align_tick_cnt++;
                 if (s_align_tick_cnt > (ALIGN_SETTLE_MS * PWM_FREQUENCY_HZ / 1000u)) {
-                    s_align_sum += enc_raw;
+                    s_align_sum += enc_snap.raw16;
                     s_align_sample_cnt++;
                 }
             }
+
+            s_dbg_enc_raw = enc_snap.raw16;
+            s_dbg_enc_theta_mrad = enc_snap.elec_mrad;
+            s_dbg_enc_errors = s_enc_error_cnt;
+            s_dbg_enc_spikes = enc_snap.spike_count;
+            s_dbg_enc_bus_errors = enc_snap.bus_error_count;
+            s_dbg_enc_alive = (s_enc_consec_fail < ENC_FAIL_THRESHOLD) ? 1u : 0u;
         } else {
             s_enc_error_cnt++;
             s_enc_consec_fail++;
-            if (s_enc_consec_fail >= ENC_FAIL_THRESHOLD) {
-                fault_manager_set(FAULT_SENSOR);
-            }
+            s_dbg_enc_errors = s_enc_error_cnt;
+            s_dbg_enc_alive = 0u;
         }
-        s_dbg_enc_raw = s_enc_raw16;
-        s_dbg_enc_theta_mrad = (int32_t)(s_enc_theta_e * RAD_TO_MRAD_F);
-        s_dbg_enc_errors = s_enc_error_cnt;
-        s_dbg_enc_alive = motor_encoder_is_alive() ? 1u : 0u;
+
+        if (s_enc_consec_fail >= ENC_FAIL_THRESHOLD) {
+            fault_manager_set(FAULT_SENSOR);
+        }
     }
 
     /* ===== ENABLED: 按模式分支 ===== */
@@ -615,6 +638,8 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->enc_raw        = s_dbg_enc_raw;
     dbg->enc_theta_mrad = s_dbg_enc_theta_mrad;
     dbg->enc_errors     = s_dbg_enc_errors;
+    dbg->enc_spikes     = s_dbg_enc_spikes;
+    dbg->enc_bus_errors = s_dbg_enc_bus_errors;
     dbg->enc_alive      = s_dbg_enc_alive;
     dbg->align_hits     = s_dbg_align_hits;
     dbg->cal_state      = s_dbg_cal_state;

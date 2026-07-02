@@ -15,8 +15,8 @@ Stage 4 + 4b 台架自动化验收脚本 (MA600A 编码器 + 旁轴非线性标�
 
 验收矩阵 (spec §7 Stage 4/4b):
   Section A: 编码器 SPI 连通性 (静止, 不动电机)
-    A1. encoder.dbg_raw 随手转轴变化 (12-bit, 0..4095)
-    A2. encoder.dbg_stat == 0 (MA600A_OK), errors 不增长
+    A1. enc_status.raw16 随手转轴变化 (16-bit, 0..65535)
+    A2. enc_status bus/spike errors 不增长
   Section B: ALIGN 零点对齐
     B1. mc_align 1000 -> 转子锁定, mc_debug.align active=1
     B2. mc_zero 显示 align_angle 非零
@@ -63,7 +63,6 @@ BAUD = 115200
 CAL_MAX_RESIDUAL_MDEG = 1000   # spec §4.7.9: 残差峰峰 < 1°
 CAL_TOTAL_TIMEOUT_S   = 120    # 标定总超时 (ALIGN 0.5s + FWD 35s + REV 35s + compute + flash ≈ 72s, 留余量)
 # MA600A 角度寄存器为 16-bit (ma600a 驱动 ma600a_read_angle_deg 用 /65536 转角度).
-# ma600a_debug.dbg_raw 与 motor_encoder.enc_raw 都是 16-bit (0..65535).
 ENC_RAW_RANGE_16BIT   = (0, 65535)
 
 
@@ -190,56 +189,48 @@ class Report:
 def section_a_encoder_spi(ser, rep):
     """Section A: 编码器 SPI 连通性 (静止, 手转轴验证)."""
     print("\n--- Section A: 编码器 SPI 连通性 ---")
-    print("  (请用手缓慢转动电机轴, 脚本会采两次 encoder 看变化)")
+    print("  (请用手缓慢转动电机轴, 脚本会采两次 enc_status 看变化)")
 
-    # A1: 两次采样看 dbg_raw 变化 (静止时 ma600a_debug 线程每 10ms 更新 g_ma600a_raw_angle)
-    # 注: dbg_raw 是 MA600A 16-bit 原始角度 (0..65535), 不是 12-bit.
-    out1 = send_cmd(ser, "encoder", wait_after=0.8)
-    f1 = parse_kv(out1)
-    raw1 = to_int(f1.get("dbg_raw"))
-    # dbg_stat 行格式 "dbg_stat : 0, samples 988, errors 1", parse_kv 会把 "0," 当值
-    m_stat1 = re.search(r"dbg_stat\s*:\s*(\d+)", out1)
-    stat1 = to_int(m_stat1.group(1)) if m_stat1 else None
+    # A1: enc_status 在电机未运行时会主动 poll 一次 encoder_service。
+    out_status1 = send_cmd(ser, "enc_status", wait_after=0.5)
+    f1 = parse_kv(out_status1)
+    raw1 = to_int(f1.get("raw16"))
 
     print("  请现在转动电机轴, 5 秒后采第二次...")
     time.sleep(5.0)
-    out2 = send_cmd(ser, "encoder", wait_after=0.8)
-    f2 = parse_kv(out2)
-    raw2 = to_int(f2.get("dbg_raw"))
-    m_stat2 = re.search(r"dbg_stat\s*:\s*(\d+)", out2)
-    stat2 = to_int(m_stat2.group(1)) if m_stat2 else None
+    out_status2 = send_cmd(ser, "enc_status", wait_after=0.5)
+    f2 = parse_kv(out_status2)
+    raw2 = to_int(f2.get("raw16"))
 
-    rep.raw["A_encoder_1"] = out1
-    rep.raw["A_encoder_2"] = out2
+    rep.raw["A_enc_status_1"] = out_status1
+    rep.raw["A_enc_status_2"] = out_status2
 
-    # A1: dbg_raw 在 16-bit 范围内
+    # A1: raw16 在 16-bit 范围内
     ok = raw1 is not None and ENC_RAW_RANGE_16BIT[0] <= raw1 <= ENC_RAW_RANGE_16BIT[1]
     rep.record("A1a_raw_in_range", ok,
-               "dbg_raw#1=%s (期望 0..65535)" % raw1)
+               "raw16#1=%s (期望 0..65535)" % raw1)
 
     ok = raw2 is not None and ENC_RAW_RANGE_16BIT[0] <= raw2 <= ENC_RAW_RANGE_16BIT[1]
     rep.record("A1b_raw_in_range", ok,
-               "dbg_raw#2=%s (期望 0..65535)" % raw2)
+               "raw16#2=%s (期望 0..65535)" % raw2)
 
     # A1: 两次值不同 (证明 SPI 在读, 不是死值) — 转轴了就应变化
     ok = raw1 is not None and raw2 is not None and raw1 != raw2
     rep.record("A1c_raw_changes", ok,
-               "dbg_raw %s -> %s (转轴后应变化)" % (raw1, raw2))
+               "raw16 %s -> %s (转轴后应变化)" % (raw1, raw2))
 
-    # A2: dbg_stat == 0 (MA600A_OK), errors 不增长
-    ok = stat1 == 0
-    rep.record("A2a_status_ok", ok,
-               "dbg_stat=%s (期望 0=MA600A_OK)" % stat1)
-
-    # motor_shell.c: "dbg_stat  : %d, samples %u, errors %u" — errors 在同一行
-    m_err1 = re.search(r"errors\s+(\d+)", out1)
-    m_err2 = re.search(r"errors\s+(\d+)", out2)
-    err1 = to_int(m_err1.group(1)) if m_err1 else None
-    err2 = to_int(m_err2.group(1)) if m_err2 else None
-    # errors 允许少量 (启动时偶发), 但两次间不应大幅增长
-    ok = err1 is not None and err2 is not None and (err2 - err1) < 5
-    rep.record("A2b_errors_stable", ok,
-               "errors %s -> %s (增量应 < 5)" % (err1, err2))
+    m_counts1 = re.search(r"counts\s*:\s*sample=(\d+)\s+accept=(\d+)\s+bus=(\d+)\s+spike=(\d+)\s+stale=(\d+)", out_status1)
+    m_counts2 = re.search(r"counts\s*:\s*sample=(\d+)\s+accept=(\d+)\s+bus=(\d+)\s+spike=(\d+)\s+stale=(\d+)", out_status2)
+    bus1 = int(m_counts1.group(3)) if m_counts1 else None
+    bus2 = int(m_counts2.group(3)) if m_counts2 else None
+    spike1 = int(m_counts1.group(4)) if m_counts1 else None
+    spike2 = int(m_counts2.group(4)) if m_counts2 else None
+    ok = bus1 is not None and bus2 is not None and spike1 is not None and spike2 is not None
+    rep.record("A2a_enc_status_counters_present", ok,
+               "enc_status bus %s->%s spike %s->%s" % (bus1, bus2, spike1, spike2))
+    ok = ok and (bus2 - bus1) < 5 and (spike2 - spike1) < 5
+    rep.record("A2b_enc_status_counters_stable", ok,
+               "bus/spike 增量应 < 5: bus %s->%s spike %s->%s" % (bus1, bus2, spike1, spike2))
 
 
 def section_b_align(ser, rep):

@@ -13,10 +13,12 @@ extern "C" {
 void motor_encoder_at32m412_init(void);
 
 /* 读取角度 + 速度 (FOC ISR 内同步阻塞, spec §3.1 step 3)
- *   raw_angle_16: 12-bit MA600A 角度左移 4 位扩展为 16-bit
+ *   raw_angle_16: MA600A 16-bit 原始角度
  *   raw_speed    : MA600A 速度寄存器原始值
  * retval 0=成功, 非0=故障码 (SPI 超时/总线错误)
  * 失败时递增内部错误计数, 连续失败会影响 motor_encoder_is_alive() */
+int motor_encoder_read_raw_frame(uint16_t *raw_angle_16, int16_t *raw_speed);
+
 int motor_encoder_read_angle_speed(uint16_t *raw_angle_16, int16_t *raw_speed);
 
 /* 机械角 -> 电角度 (弧度 [0, 2π)), 含旁轴标定查表 + 零点修正 (spec §4.5.2 + §4.7.6)
@@ -43,3 +45,4 @@ uint16_t motor_encoder_get_zero(void);
 #endif
 
 #endif /* MOTOR_ENCODER_AT32M412_H */
+

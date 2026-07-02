@@ -14,6 +14,7 @@
  * RAM 占用: 两个 256×int32 直方图 = 2KB + s_cal 528B, 共约 2.5KB
  */
 #include "motor_calibration.h"
+#include "encoder_service.h"
 #include "fault_manager.h"
 #include "flash_calibration_at32m412.h"
 #include "motor_params.h"
@@ -29,9 +30,6 @@ extern int      motor_control_isr_open_loop_start(float vd_volts, float speed_ra
 extern void     motor_control_isr_open_loop_stop(void);
 extern void     motor_control_isr_open_loop_set_encoder_angle(bool use_enc);
 
-/* 编码器读取: 前向声明 motor_encoder_at32m412 接口 */
-extern int motor_encoder_read_angle_speed(uint16_t *raw_angle_16, int16_t *raw_speed);
-
 /* ===== 全局零点 (供 motor_encoder_at32m412.c 读取) ===== */
 uint16_t g_motor_zero_raw = 0u;
 
@@ -39,7 +37,8 @@ uint16_t g_motor_zero_raw = 0u;
 static motor_calibration_t s_cal;
 static bool     s_cal_valid = false;
 static cal_state_t s_cal_state = CAL_STATE_IDLE;
-static uint8_t  s_cal_progress = 0u;
+static cal_mode_t s_cal_mode = CAL_MODE_AUTO_OPEN_LOOP;
+static motor_calibration_quality_t s_cal_quality;
 static int16_t  s_max_residual = 0;       /* 0.001° 单位 */
 
 /* 直方图: 每箱累加 (raw16 - bin_base), bin_base = idx * 256.
@@ -81,9 +80,12 @@ void motor_calibration_load(void)
     if (flash_calibration_read(&s_cal)) {
         s_cal_valid = true;
         g_motor_zero_raw = s_cal.mech_zero_raw;
+        encoder_service_set_zero(g_motor_zero_raw);
+        encoder_service_set_calibration_table(s_cal.table, true);
         fault_manager_clear(FAULT_CAL_INVALID);
     } else {
         s_cal_valid = false;
+        encoder_service_set_calibration_table(0, false);
         /* spec §4.7.7: 失败时置 FAULT_CAL_INVALID (告警级, 不阻止使能) */
         fault_manager_set(FAULT_CAL_INVALID);
     }
@@ -94,7 +96,11 @@ const motor_calibration_t *motor_calibration_get(void) { return &s_cal; }
 int16_t motor_calibration_get_max_residual(void) { return s_max_residual; }
 const int16_t *motor_calibration_get_table(void) { return s_cal.table; }
 uint16_t motor_calibration_get_zero(void) { return g_motor_zero_raw; }
-void motor_calibration_set_zero(uint16_t raw) { g_motor_zero_raw = raw; }
+void motor_calibration_set_zero(uint16_t raw)
+{
+    g_motor_zero_raw = raw;
+    encoder_service_set_zero(raw);
+}
 
 cal_state_t motor_calibration_get_state(void) { return s_cal_state; }
 
@@ -131,9 +137,9 @@ uint8_t motor_calibration_get_progress(void)
 void motor_calibration_tick(void)
 {
     uint16_t raw_16 = 0u;
-    int16_t  spd = 0;
     uint16_t idx;
     int32_t  delta;
+    encoder_snapshot_t snap;
 
     if (s_cal_state != CAL_STATE_SPIN_FWD && s_cal_state != CAL_STATE_SPIN_REV) {
         return;
@@ -142,10 +148,10 @@ void motor_calibration_tick(void)
     if (s_cal_state == CAL_STATE_SPIN_FWD && !s_fwd_spin_started) return;
     if (s_cal_state == CAL_STATE_SPIN_REV && !s_rev_spin_started) return;
 
-    /* 读编码器 (ISR 内阻塞, ~6µs). 失败则跳过本 tick. */
-    if (motor_encoder_read_angle_speed(&raw_16, &spd) != 0) {
+    if (!encoder_service_get_snapshot(&snap)) {
         return;
     }
+    raw_16 = snap.raw16;
 
     /* 分箱: 256 箱, 每箱 256 LSB (65536/256) */
     idx = (uint16_t)(raw_16 >> 8);       /* 0..255 */
@@ -185,6 +191,28 @@ void motor_calibration_abort(void)
     s_cal_state = CAL_STATE_ABORTED;
 }
 
+void motor_calibration_start_mode(cal_mode_t mode)
+{
+    s_cal_mode = mode;
+    motor_calibration_start();
+}
+
+void motor_calibration_stop_manual(void)
+{
+    if ((s_cal_mode == CAL_MODE_MANUAL) && (s_cal_state == CAL_STATE_SPIN_FWD)) {
+        s_cal_state = CAL_STATE_COMPUTE;
+    }
+}
+
+bool motor_calibration_get_quality(motor_calibration_quality_t *out)
+{
+    if (out == 0) {
+        return false;
+    }
+    *out = s_cal_quality;
+    return true;
+}
+
 /* CAL_COMPUTE: 计算校正表 (spec §4.7.5 step 4) */
 static void cal_compute_table(void)
 {
@@ -196,11 +224,15 @@ static void cal_compute_table(void)
     int32_t max_abs;
     uint16_t i;
     uint16_t valid_bins;
+    uint16_t min_count;
+    uint16_t bin_count;
+    encoder_snapshot_t snap;
 
     /* 每箱平均偏移 = hist[idx] / count[idx] (归一化).
      * 早期实现直接 (fwd+rev)/2 把累加和当平均值, 值放大 N 倍饱和. */
     sum_valid = 0;
     valid_bins = 0;
+    min_count = 0xFFFFu;
     for (i = 0; i < CAL_HIST_BINS; i++) {
         e_fwd = (s_bin_count_fwd[i] > 0u)
               ? (s_hist_fwd[i] / (int32_t)s_bin_count_fwd[i])
@@ -222,6 +254,10 @@ static void cal_compute_table(void)
         s_hist_fwd[i] = e;   /* 复用 fwd 数组暂存归一化后的 e[idx] */
         sum_valid += e;
         valid_bins++;
+        bin_count = (uint16_t)(s_bin_count_fwd[i] + s_bin_count_rev[i]);
+        if (bin_count < min_count) {
+            min_count = bin_count;
+        }
     }
 
     /* 去直流: 仅对采到的箱算 mean, 保证表平均偏移为 0 */
@@ -240,6 +276,15 @@ static void cal_compute_table(void)
         if (e > max_abs) max_abs = e;
     }
     s_max_residual = (int16_t)max_abs;
+    s_cal_quality.sample_count = s_hist_count_fwd + s_hist_count_rev;
+    s_cal_quality.covered_bins = valid_bins;
+    s_cal_quality.min_bin_count = (valid_bins > 0u) ? min_count : 0u;
+    s_cal_quality.max_residual_mdeg = s_max_residual;
+    if (encoder_service_get_snapshot(&snap)) {
+        s_cal_quality.spike_count_end = snap.spike_count;
+    }
+    s_cal_quality.quality_ok = ((valid_bins >= 240u) &&
+                                (s_max_residual <= CAL_MAX_RESIDUAL_MDEG)) ? 1u : 0u;
 }
 
 void motor_calibration_poll(void)
@@ -270,6 +315,18 @@ void motor_calibration_poll(void)
             break;
 
         case CAL_STATE_ZERO_ALIGN:
+            if (s_cal_mode == CAL_MODE_MANUAL) {
+                encoder_snapshot_t snap;
+
+                if (encoder_service_get_snapshot(&snap)) {
+                    g_motor_zero_raw = snap.raw16;
+                    encoder_service_set_zero(g_motor_zero_raw);
+                }
+                s_cal_state = CAL_STATE_SPIN_FWD;
+                s_fwd_spin_started = true;
+                s_phase_start_tick = now;
+                break;
+            }
             if (!s_align_in_progress) {
                 /* 启动 ALIGN: 锁定转子到 d 轴 0° (spec §4.5.3) */
                 int ret = motor_control_isr_align_start(ALIGN_VD_VOLTS);
@@ -353,6 +410,11 @@ void motor_calibration_poll(void)
 
         case CAL_STATE_WRITE_FLASH: {
             bool ok;
+            if (!s_cal_quality.quality_ok) {
+                fault_manager_set(FAULT_CAL_INVALID);
+                s_cal_state = CAL_STATE_ABORTED;
+                break;
+            }
             /* 填结构体 */
             s_cal.magic = CAL_MAGIC;
             s_cal.version = CAL_VERSION;
@@ -366,6 +428,8 @@ void motor_calibration_poll(void)
             ok = flash_calibration_write(&s_cal);
             if (ok) {
                 s_cal_valid = true;
+                encoder_service_set_zero(g_motor_zero_raw);
+                encoder_service_set_calibration_table(s_cal.table, true);
                 fault_manager_clear(FAULT_CAL_INVALID);
                 s_cal_state = CAL_STATE_DONE;
             } else {
@@ -382,6 +446,8 @@ void motor_calibration_poll(void)
 
 void motor_calibration_start(void)
 {
+    encoder_snapshot_t snap;
+
     /* 前置检查: 故障未清或电机运行中不允许启动 */
     if (fault_manager_any_fatal()) {
         return;
@@ -395,6 +461,11 @@ void motor_calibration_start(void)
     s_hist_count_fwd = 0u;
     s_hist_count_rev = 0u;
     s_max_residual = 0;
+    memset(&s_cal_quality, 0, sizeof(s_cal_quality));
+    if (encoder_service_get_snapshot(&snap)) {
+        s_cal_quality.spike_count_start = snap.spike_count;
+        s_cal_quality.spike_count_end = snap.spike_count;
+    }
     s_align_in_progress = false;
     s_fwd_spin_started = false;
     s_rev_spin_started = false;

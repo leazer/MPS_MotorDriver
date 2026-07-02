@@ -1,0 +1,11 @@
+=== Section A: precondition ===
+[A] PASS: DISABLED, fault clear, mc_cal done, mc_cur exists
+=== Section B: ramp mode (force cal invalid) ===
+[B2] PASS: enc rejected when cal invalid
+[B3] PASS: ramp mode started (0.2A, 60rpm)
+[B4] PASS: cur_hits+181686 (ISR running CURRENT branch)
+=== Section D: enc mode (with calibration) ===
+[D1] PASS: calibration DONE
+[D3] PASS: enc mode started (50mA, 空载低 BEMF)
+
+=== FAIL: D4: enc iq err 72.0% >= 10.0% ===

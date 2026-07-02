@@ -7,11 +7,10 @@ HEADER = MA600_DIR / "ma600a.h"
 SOURCE = MA600_DIR / "ma600a.c"
 AT32_PORT_HEADER = MA600_DIR / "ma600a_at32_spi2.h"
 AT32_PORT_SOURCE = MA600_DIR / "ma600a_at32_spi2.c"
-DEBUG_HEADER = ROOT / "project" / "inc" / "ma600a_debug.h"
-DEBUG_SOURCE = ROOT / "project" / "src" / "ma600a_debug.c"
 CMAKE = ROOT / "CMakeLists.txt"
 MDK_PROJECT = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
 MAIN = ROOT / "project" / "src" / "main.c"
+MOTOR_APP = ROOT / "application" / "motor_app.c"
 
 
 def read(path):
@@ -101,7 +100,7 @@ def test_project_cmake_includes_ma600_driver():
 
     assert "middlewares/msp/ma600/ma600a.c" in cmake
     assert "middlewares/msp/ma600/ma600a_at32_spi2.c" in cmake
-    assert "project/src/ma600a_debug.c" in cmake
+    assert "project/src/ma600a_debug.c" not in cmake
     assert "middlewares/msp/ma600" in cmake
 
 
@@ -128,36 +127,16 @@ def test_at32_spi2_port_uses_callbacks_and_generated_pins():
         assert token in source
 
 
-def test_debug_module_exports_keil_watch_variables():
-    header = read(DEBUG_HEADER)
-    source = read(DEBUG_SOURCE)
-
-    for token in [
-        "ma600a_debug_init",
-        "ma600a_debug_poll",
-        "g_ma600a_raw_angle",
-        "g_ma600a_angle_deg",
-        "g_ma600a_status",
-        "g_ma600a_sample_count",
-        "g_ma600a_error_count",
-        "g_ma600a_speed_raw",
-        "g_ma600a_speed_rpm",
-    ]:
-        assert token in header + source
-
-    assert "volatile" in header
-
-
-def test_main_and_mdk_project_include_debug_support():
+def test_main_and_mdk_project_do_not_include_debug_poll_support():
     main = read(MAIN)
+    motor_app = read(MOTOR_APP)
     mdk = read(MDK_PROJECT)
 
-    assert '#include "ma600a_debug.h"' in main
-    assert "ma600a_debug_init();" in main
-    assert "ma600a_debug_poll();" in main
+    assert '#include "motor_app.h"' in main
+    assert "ma600a_debug" not in motor_app
     assert "ma600a.c" in mdk
     assert "ma600a_at32_spi2.c" in mdk
-    assert "ma600a_debug.c" in mdk
+    assert "ma600a_debug.c" not in mdk
 
 
 if __name__ == "__main__":
@@ -168,8 +147,7 @@ if __name__ == "__main__":
         test_driver_is_decoupled_from_at32_spi_gpio,
         test_project_cmake_includes_ma600_driver,
         test_at32_spi2_port_uses_callbacks_and_generated_pins,
-        test_debug_module_exports_keil_watch_variables,
-        test_main_and_mdk_project_include_debug_support,
+        test_main_and_mdk_project_do_not_include_debug_poll_support,
     ]
     for test in tests:
         test()

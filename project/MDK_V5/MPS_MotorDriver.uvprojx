@@ -399,11 +399,6 @@
               <FilePath>..\src\main.c</FilePath>
             </File>
             <File>
-              <FileName>ma600a_debug.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>..\src\ma600a_debug.c</FilePath>
-            </File>
-            <File>
               <FileName>rtthread_app.c</FileName>
               <FileType>1</FileType>
               <FilePath>../src/rtthread_app.c</FilePath>
@@ -457,6 +452,11 @@
               <FileName>motor_calibration.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\motor_calibration.c</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\encoder_service.c</FilePath>
             </File>
           </Files>
         </Group>
