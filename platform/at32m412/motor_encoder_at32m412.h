@@ -20,6 +20,7 @@ void motor_encoder_at32m412_init(void);
 int motor_encoder_read_raw_frame(uint16_t *raw_angle_16, int16_t *raw_speed);
 
 int motor_encoder_read_angle_speed(uint16_t *raw_angle_16, int16_t *raw_speed);
+int motor_encoder_read_angle_raw(uint16_t *raw_angle_16);
 
 /* 机械角 -> 电角度 (弧度 [0, 2π)), 含旁轴标定查表 + 零点修正 (spec §4.5.2 + §4.7.6)
  * 流程: raw_16 -> 查表校正 (若标定有效) -> 减零点 -> ×极对数 -> mod 2π */

@@ -80,6 +80,25 @@ def test_speed_read_uses_32bit_frame_and_preserves_prt_bits():
     assert "f_ck100_khz / 100.0f" in source
 
 
+def test_angle_read_does_not_enable_aprt_parity():
+    source = read(SOURCE)
+    header = read(HEADER)
+    platform = read(ROOT / "platform" / "at32m412" / "motor_encoder_at32m412.c")
+
+    assert "ma600a_set_angle_parity" not in header + source + platform
+    assert "MA600A_PRT_APRT" not in source
+    assert "ma600a_angle_parity_ok" not in source
+    assert "& 0xFFFEu" not in source
+
+
+def test_at32_spi2_uses_datasheet_supported_mode0():
+    source = read(ROOT / "platform" / "at32m412" / "motor_encoder_at32m412.c")
+
+    assert "SPI_CLOCK_POLARITY_LOW" in source
+    assert "SPI_CLOCK_PHASE_1EDGE" in source
+    assert "SPI_CLOCK_PHASE_2EDGE" not in source
+
+
 def test_driver_is_decoupled_from_at32_spi_gpio():
     source = read(SOURCE)
 
@@ -144,6 +163,8 @@ if __name__ == "__main__":
         test_public_api_and_bus_callbacks,
         test_protocol_constants_and_registers_are_present,
         test_speed_read_uses_32bit_frame_and_preserves_prt_bits,
+        test_angle_read_does_not_enable_aprt_parity,
+        test_at32_spi2_uses_datasheet_supported_mode0,
         test_driver_is_decoupled_from_at32_spi_gpio,
         test_project_cmake_includes_ma600_driver,
         test_at32_spi2_port_uses_callbacks_and_generated_pins,

@@ -8,6 +8,8 @@
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
 #include "encoder_service.h"
+#include "encoder_tracker.h"
+#include "encoder_acq_timer_at32m412.h"
 
 /* 全局电机控制实例 (motor_control 接口需要实例指针) */
 static motor_control_t s_motor_control;
@@ -37,13 +39,14 @@ void motor_app_init(void)
      * 需在 board_clock_init (已开 GPIOB) 之后, SPI2 时钟由本函数开启. */
     motor_encoder_at32m412_init();
     encoder_service_init();
+    encoder_tracker_init();
 
     /* 应用层模块 */
     fault_manager_init();
     motor_control_init(&s_motor_control);  /* 已有状态机 */
     motor_calibration_load();              /* 开机加载标定 (Stage 4b) */
     current_loop_init();                   /* Stage 5: 电流环 PID 参数初始化 */
-
+    encoder_acq_timer_at32m412_init();     /* 4kHz 低优先级编码器采集 */
 }
 
 void motor_app_run(void)

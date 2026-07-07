@@ -27,7 +27,7 @@
 **Files:**
 - Modify: `tests/encoder_service/test_encoder_service_static.py`
 
-- [ ] **Step 1: Add failing static tests**
+- [x] **Step 1: Add failing static tests**
 
 Append these checks:
 
@@ -60,7 +60,7 @@ def test_encoder_tracker_module_exists_and_is_built():
 
 Add these two functions to the `__main__` runner.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python MPS_MotorDriver\tests\encoder_service\test_encoder_service_static.py`
 
@@ -74,7 +74,7 @@ Expected: FAIL because `encoder_tracker.h/c` do not exist and `motor_control_isr
 - Modify: `CMakeLists.txt`
 - Modify: `project/MDK_V5/MPS_MotorDriver.uvprojx`
 
-- [ ] **Step 1: Create public header**
+- [x] **Step 1: Create public header**
 
 ```c
 #ifndef ENCODER_TRACKER_H
@@ -111,7 +111,7 @@ bool encoder_tracker_get_snapshot(encoder_tracker_snapshot_t *out);
 #endif
 ```
 
-- [ ] **Step 2: Create minimal implementation**
+- [x] **Step 2: Create minimal implementation**
 
 Use electrical angle from raw sample and hold last angle. Keep PLL gains conservative for the first pass.
 
@@ -231,11 +231,11 @@ bool encoder_tracker_get_snapshot(encoder_tracker_snapshot_t *out)
 }
 ```
 
-- [ ] **Step 3: Add source to build files**
+- [x] **Step 3: Add source to build files**
 
 Add `application/motor_control/encoder_tracker.c` to CMake and Keil application/motor_control group.
 
-- [ ] **Step 4: Run test**
+- [x] **Step 4: Run test**
 
 Run: `python MPS_MotorDriver\tests\encoder_service\test_encoder_service_static.py`
 
@@ -247,7 +247,7 @@ Expected: decoupling test still fails because ISR still calls service update, tr
 - Modify: `application/motor_control/encoder_service.h`
 - Modify: `application/motor_control/encoder_service.c`
 
-- [ ] **Step 1: Add service API test**
+- [x] **Step 1: Add service API test**
 
 In `test_encoder_service_public_api_exists`, add token:
 
@@ -255,19 +255,19 @@ In `test_encoder_service_public_api_exists`, add token:
 "encoder_service_update_sample",
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `python MPS_MotorDriver\tests\encoder_service\test_encoder_service_static.py`
 
 Expected: FAIL because `encoder_service_update_sample` is missing.
 
-- [ ] **Step 3: Add API declaration**
+- [x] **Step 3: Add API declaration**
 
 ```c
 int encoder_service_update_sample(uint16_t raw, int16_t speed, uint8_t bus_ok);
 ```
 
-- [ ] **Step 4: Implement ingestion**
+- [x] **Step 4: Implement ingestion**
 
 Refactor `encoder_service_update_from_isr()` so it calls:
 
@@ -304,7 +304,7 @@ int encoder_service_update_sample(uint16_t raw, int16_t speed, uint8_t bus_ok)
 
 Then make `encoder_service_update_from_isr()` only do SPI read and call the new API.
 
-- [ ] **Step 5: Run test**
+- [x] **Step 5: Run test**
 
 Run: `python MPS_MotorDriver\tests\encoder_service\test_encoder_service_static.py`
 
@@ -317,7 +317,7 @@ Expected: same ISR decoupling failure remains; service API tests pass.
 - Modify: `application/motor_control/encoder_service.c`
 - Modify: `application/motor_control/encoder_tracker.c`
 
-- [ ] **Step 1: Define behavior**
+- [x] **Step 1: Define behavior**
 
 For the first implementation, acquisition can be called from a lower-priority timer or thread:
 
@@ -327,11 +327,11 @@ int encoder_service_acquire_once(void);
 
 It reads angle-only first, sets `speed_raw` to zero, updates service, and feeds tracker. This removes speed_raw dependency and halves SPI traffic versus the current angle+speed frame.
 
-- [ ] **Step 2: Add static test**
+- [x] **Step 2: Add static test**
 
 Assert that `encoder_service_acquire_once` calls `motor_encoder_read_angle_only` or `motor_encoder_read_raw_frame` depending on which platform API exists. Prefer adding `motor_encoder_read_angle_raw`.
 
-- [ ] **Step 3: Add platform angle-only read**
+- [x] **Step 3: Add platform angle-only read**
 
 In `platform/at32m412/motor_encoder_at32m412.h`:
 
@@ -357,7 +357,7 @@ int motor_encoder_read_angle_raw(uint16_t *raw_angle_16)
 }
 ```
 
-- [ ] **Step 4: Implement acquisition**
+- [x] **Step 4: Implement acquisition**
 
 ```c
 int encoder_service_acquire_once(void)
@@ -375,7 +375,7 @@ int encoder_service_acquire_once(void)
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 Run:
 
@@ -392,7 +392,7 @@ Expected: service tests pass except ISR decoupling until Task 5.
 - Modify: `application/motor_control/motor_control_isr.c`
 - Modify: `application/motor_app.c`
 
-- [ ] **Step 1: Initialize tracker**
+- [x] **Step 1: Initialize tracker**
 
 Add `#include "encoder_tracker.h"` to `motor_app.c`, then call:
 
@@ -402,7 +402,7 @@ encoder_tracker_init();
 
 after `encoder_service_init()`.
 
-- [ ] **Step 2: Replace ISR encoder block**
+- [x] **Step 2: Replace ISR encoder block**
 
 In `motor_control_isr_tick()`, replace the full `encoder_service_update_from_isr()` block with:
 
@@ -418,7 +418,7 @@ if (encoder_tracker_get_sample_age_ticks() >= ENC_FAIL_THRESHOLD) {
 
 Then keep mode branches unchanged: `OPEN_LOOP` and `CURRENT` still use `s_enc_theta_e`.
 
-- [ ] **Step 3: Preserve ALIGN sampling**
+- [x] **Step 3: Preserve ALIGN sampling**
 
 Move ALIGN sample accumulation out of FOC ISR. In the acquisition path, if ALIGN is active, service snapshot raw can be accumulated from latest accepted raw. If direct access to `s_align_*` from service is too coupled, add a small function in `motor_control_isr.c`:
 
@@ -437,7 +437,7 @@ void motor_control_isr_on_encoder_sample(uint16_t raw16)
 
 Declare it in `motor_control_isr.h` and call it from `encoder_service_acquire_once()` after a valid sample.
 
-- [ ] **Step 4: Run tests**
+- [x] **Step 4: Run tests**
 
 Run: `python MPS_MotorDriver\tests\encoder_service\test_encoder_service_static.py`
 
@@ -448,7 +448,7 @@ Expected: `test_foc_isr_does_not_read_encoder_spi` passes.
 **Files:**
 - Modify: `application/motor_app.c`
 
-- [ ] **Step 1: Add a low-priority acquisition thread**
+- [x] **Step 1: Add a low-priority acquisition thread**
 
 Use RT-Thread thread context first to validate architecture before adding a hardware timer:
 
@@ -482,11 +482,11 @@ Expected:
 - Modify: `application/motor_app.c`
 - Modify: build files
 
-- [ ] **Step 1: Choose timer and frequency**
+- [x] **Step 1: Choose timer and frequency**
 
 Use a spare general-purpose timer at 4 kHz initially. IRQ priority must be lower than `TMR1_OVF_TMR10_IRQn`.
 
-- [ ] **Step 2: Implement timer ISR**
+- [x] **Step 2: Implement timer ISR**
 
 Timer ISR body:
 
@@ -500,7 +500,7 @@ void ENCODER_ACQ_TIMER_IRQHandler(void)
 }
 ```
 
-- [ ] **Step 3: Remove temporary thread**
+- [x] **Step 3: Remove temporary thread**
 
 Delete `encoder_acq_thread` after timer validates.
 
@@ -518,7 +518,7 @@ Measure:
 - Modify: `application/motor_control/encoder_tracker.c`
 - Modify: `application/motor_shell.c`
 
-- [ ] **Step 1: Add diagnostic output**
+- [x] **Step 1: Add diagnostic output**
 
 In `enc_status`, print:
 

@@ -65,6 +65,7 @@ bool motor_control_isr_align_active(void);
 /* 读取 ALIGN 期间采集的零点角度 (最后 ALIGN_SAMPLE_WINDOW_TICKS 的平均, 16-bit).
  * 供 motor_calibration_poll 在 ALIGN 结束时读取. */
 uint16_t motor_control_isr_get_align_angle(void);
+void motor_control_isr_on_encoder_sample(uint16_t raw16);
 
 /* ===== CURRENT 模式接口 (Stage 5, spec-stage5 §5.3) =====
  *

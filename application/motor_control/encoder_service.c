@@ -1,9 +1,14 @@
 #include "encoder_service.h"
+#include "encoder_tracker.h"
+#include "board_motor_pins.h"
+#include "encoder_acq_timer_at32m412.h"
+#include "motor_control_isr.h"
 #include "motor_encoder_at32m412.h"
 #include "motor_params.h"
 #include <string.h>
 
-#define ENC_MAX_DELTA_PER_TICK      1024
+#define ENC_MAX_DELTA_PER_FOC_TICK  1024
+#define ENC_MAX_DELTA_PER_TICK      ((ENC_MAX_DELTA_PER_FOC_TICK * (int32_t)PWM_FREQUENCY_HZ) / (int32_t)ENCODER_ACQ_TIMER_HZ)
 #define ENC_CONSEC_ERROR_THRESHOLD  32u
 #define TWO_PI_F                    6.28318530718f
 
@@ -102,10 +107,20 @@ int encoder_service_update_from_isr(void)
 {
     uint16_t raw = 0u;
     int16_t speed = 0;
+
+    if (motor_encoder_read_raw_frame(&raw, &speed) != 0) {
+        return encoder_service_update_sample(0u, 0, 0u);
+    }
+
+    return encoder_service_update_sample(raw, speed, 1u);
+}
+
+int encoder_service_update_sample(uint16_t raw, int16_t speed, uint8_t bus_ok)
+{
     int16_t delta = 0;
 
     s_snapshot.sample_count++;
-    if (motor_encoder_read_raw_frame(&raw, &speed) != 0) {
+    if (bus_ok == 0u) {
         s_snapshot.bus_error_count++;
         s_consec_error_count++;
         return -1;
@@ -128,6 +143,25 @@ int encoder_service_update_from_isr(void)
     }
 
     return encoder_accept_sample(raw, speed, delta);
+}
+
+int encoder_service_acquire_once(void)
+{
+    uint16_t raw = 0u;
+    int ret;
+
+    ret = motor_encoder_read_angle_raw(&raw);
+    if (ret == 0) {
+        ret = encoder_service_update_sample(raw, 0, 1u);
+        if (ret == 0) {
+            encoder_tracker_update_sample(raw, 1u);
+            motor_control_isr_on_encoder_sample(raw);
+        }
+        return ret;
+    }
+
+    encoder_tracker_update_sample(0u, 0u);
+    return encoder_service_update_sample(0u, 0, 0u);
 }
 
 int encoder_service_poll_once_thread(void)

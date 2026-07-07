@@ -71,7 +71,7 @@ static void motor_encoder_spi2_init(void)
     gpio_init(SPI2_CS_GPIO_PORT, &gpio_init_struct);
     gpio_bits_set(SPI2_CS_GPIO_PORT, SPI2_CS_PIN);   /* CS=高, 释放 */
 
-    /* 4. SPI2 参数 (Mode 1, MSB, 16-bit, 主机, 软件 CS, DIV_64) */
+    /* 4. SPI2 参数 (Mode 0, MSB, 16-bit, 主机, 软件 CS, DIV_64) */
     spi_i2s_reset(SPI2);
     spi_default_para_init(&spi_init_struct);
     spi_init_struct.transmission_mode      = SPI_TRANSMIT_FULL_DUPLEX;
@@ -80,7 +80,7 @@ static void motor_encoder_spi2_init(void)
     spi_init_struct.first_bit_transmission = SPI_FIRST_BIT_MSB;
     spi_init_struct.frame_bit_num          = SPI_FRAME_16BIT;
     spi_init_struct.clock_polarity         = SPI_CLOCK_POLARITY_LOW;   /* CPOL=0 */
-    spi_init_struct.clock_phase            = SPI_CLOCK_PHASE_2EDGE;    /* CPHA=1 -> Mode 1 */
+    spi_init_struct.clock_phase            = SPI_CLOCK_PHASE_1EDGE;    /* CPHA=0 -> Mode 0 */
     spi_init_struct.cs_mode_selection      = SPI_CS_SOFTWARE_MODE;
     spi_init(SPI2, &spi_init_struct);
 
@@ -113,6 +113,25 @@ int motor_encoder_read_angle_speed(uint16_t *raw_angle_16, int16_t *raw_speed)
     s_tick_seq++;
 
     if (motor_encoder_read_raw_frame(raw_angle_16, raw_speed) != 0) {
+        return -1;
+    }
+
+    s_last_raw16 = *raw_angle_16;
+    s_last_success_tick = s_tick_seq;
+    return 0;
+}
+
+int motor_encoder_read_angle_raw(uint16_t *raw_angle_16)
+{
+    s_tick_seq++;
+
+    if (raw_angle_16 == 0) {
+        s_error_count++;
+        return -1;
+    }
+
+    if (ma600a_read_angle_raw(&s_ma600a, raw_angle_16) != 0) {
+        s_error_count++;
         return -1;
     }
 

@@ -17,7 +17,7 @@
 #include "foc_core.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
-#include "encoder_service.h"
+#include "encoder_tracker.h"
 #include "motor_calibration.h"
 #include "fault_manager.h"
 #include "motor_params.h"
@@ -70,7 +70,6 @@ static volatile uint16_t s_enc_raw16;        /* 最近一次编码器原始角�
 static volatile int16_t  s_enc_speed_raw;    /* 编码器速度原始值 */
 static volatile float    s_enc_theta_e;      /* 编码器电角度 (rad) */
 static volatile uint16_t s_enc_error_cnt;    /* 读取失败累计 */
-static volatile uint32_t s_enc_consec_fail;  /* 连续失败计数 (成功清零) */
 
 /* ===== ISR 调试用快照 (ISR 写, shell 读) ===== */
 static volatile int32_t  s_dbg_theta_mrad;
@@ -220,46 +219,29 @@ void motor_control_isr_tick(void)
         return;
     }
 
-    /* ===== Stage 4: 编码器读取 (ENABLED 状态下每 tick 更新唯一 service 快照) ===== */
+    /* ===== Stage 4: 编码器跟踪 (FOC tick 只预测角度, 不做 SPI 访问) ===== */
     {
-        encoder_snapshot_t enc_snap;
-        int enc_ret;
+        encoder_tracker_snapshot_t trk;
+        uint32_t age;
 
-        enc_ret = encoder_service_update_from_isr();
-        if (encoder_service_get_snapshot(&enc_snap)) {
-            s_enc_raw16 = enc_snap.raw16;
-            s_enc_speed_raw = enc_snap.speed_raw;
-            s_enc_theta_e = ((float)enc_snap.elec_mrad) / RAD_TO_MRAD_F;
-            s_enc_error_cnt = (uint16_t)(enc_snap.bus_error_count + enc_snap.spike_count);
-            if (enc_ret == 0) {
-                s_enc_consec_fail = 0u;
-            } else if (enc_ret == -1) {
-                s_enc_consec_fail++;
-            }
+        encoder_tracker_tick();
+        s_enc_theta_e = encoder_tracker_get_electrical_angle_rad();
+        age = encoder_tracker_get_sample_age_ticks();
 
-            /* ALIGN 期间: settle 期后开始采样累加 (供 get_align_angle 平均) */
-            if ((enc_ret == 0) && s_align_active) {
-                s_align_tick_cnt++;
-                if (s_align_tick_cnt > (ALIGN_SETTLE_MS * PWM_FREQUENCY_HZ / 1000u)) {
-                    s_align_sum += enc_snap.raw16;
-                    s_align_sample_cnt++;
-                }
-            }
-
-            s_dbg_enc_raw = enc_snap.raw16;
-            s_dbg_enc_theta_mrad = enc_snap.elec_mrad;
+        if (encoder_tracker_get_snapshot(&trk)) {
+            s_enc_raw16 = trk.raw16;
+            s_enc_speed_raw = (int16_t)encoder_tracker_get_speed_rad_s();
+            s_dbg_enc_raw = trk.raw16;
+            s_dbg_enc_theta_mrad = trk.elec_mrad;
             s_dbg_enc_errors = s_enc_error_cnt;
-            s_dbg_enc_spikes = enc_snap.spike_count;
-            s_dbg_enc_bus_errors = enc_snap.bus_error_count;
-            s_dbg_enc_alive = (s_enc_consec_fail < ENC_FAIL_THRESHOLD) ? 1u : 0u;
+            s_dbg_enc_alive = (age < ENC_FAIL_THRESHOLD) ? 1u : 0u;
         } else {
             s_enc_error_cnt++;
-            s_enc_consec_fail++;
             s_dbg_enc_errors = s_enc_error_cnt;
             s_dbg_enc_alive = 0u;
         }
 
-        if (s_enc_consec_fail >= ENC_FAIL_THRESHOLD) {
+        if (age >= ENC_FAIL_THRESHOLD) {
             fault_manager_set(FAULT_SENSOR);
         }
     }
@@ -533,6 +515,17 @@ uint16_t motor_control_isr_get_align_angle(void)
         return 0u;
     }
     return (uint16_t)(s_align_sum / s_align_sample_cnt);
+}
+
+void motor_control_isr_on_encoder_sample(uint16_t raw16)
+{
+    if (s_align_active) {
+        s_align_tick_cnt++;
+        if (s_align_tick_cnt > ALIGN_SETTLE_MS) {
+            s_align_sum += raw16;
+            s_align_sample_cnt++;
+        }
+    }
 }
 
 /* ===== Stage 5: CURRENT 模式接口 (spec-stage5 §5.3) ===== */

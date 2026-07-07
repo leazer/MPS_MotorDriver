@@ -29,6 +29,8 @@ typedef struct {
 
 void encoder_service_init(void);
 int  encoder_service_update_from_isr(void);
+int  encoder_service_update_sample(uint16_t raw, int16_t speed, uint8_t bus_ok);
+int  encoder_service_acquire_once(void);
 int  encoder_service_poll_once_thread(void);
 bool encoder_service_get_snapshot(encoder_snapshot_t *out);
 float encoder_service_get_electrical_angle_rad(void);

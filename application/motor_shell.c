@@ -19,6 +19,7 @@
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
 #include "encoder_service.h"
+#include "encoder_tracker.h"
 #include "motor_control.h"
 #include "motor_control_isr.h"
 #include "motor_calibration.h"
@@ -576,6 +577,7 @@ MSH_CMD_EXPORT(mc_cal_erase, erase FLASH calibration sector);
 static void enc_status(int argc, char **argv)
 {
     encoder_snapshot_t snap;
+    encoder_tracker_snapshot_t trk;
     bool motor_active;
 
     (void)argc; (void)argv;
@@ -606,6 +608,15 @@ static void enc_status(int argc, char **argv)
                snap.last_rejected_raw16, snap.last_rejected_delta);
     rt_kprintf("zero_raw  : %u\n", encoder_service_get_zero());
     rt_kprintf("cal_valid : %d\n", motor_calibration_is_valid() ? 1 : 0);
+
+    if (encoder_tracker_get_snapshot(&trk)) {
+        rt_kprintf("=== encoder tracker ===\n");
+        rt_kprintf("trk_raw   : %u\n", trk.raw16);
+        rt_kprintf("trk_theta : %ld mrad\n", (long)trk.elec_mrad);
+        rt_kprintf("trk_speed : %ld mrad/s\n", (long)trk.speed_mrad_s);
+        rt_kprintf("trk_age   : %lu ticks\n", trk.stale_ticks);
+        rt_kprintf("trk_count : %lu\n", trk.sample_count);
+    }
 }
 MSH_CMD_EXPORT(enc_status, show encoder service snapshot and diagnostics);
 

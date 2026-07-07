@@ -1,76 +1,73 @@
 <?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <lksscope appVersion="v1.4.8">
     <params>
-        <param value="0" name="linkType"/>
-        <param value="10000000" name="jClock"/>
-        <param value="1000000" name="uClock"/>
-        <param value="COM9" name="commPort"/>
-        <param value="9600" name="commBaud"/>
-        <param value="" name="bleName"/>
-        <param value="" name="localIP"/>
-        <param value="" name="localPort"/>
-        <param value="" name="remoteIP"/>
-        <param value="" name="remotePort"/>
-        <param value="20000000" name="rttAddr"/>
-        <param value="16000" name="rttFreq"/>
-        <param value="10" name="sampleInterval"/>
-        <param value="50" name="uiInterval"/>
-        <param value="100" name="maxPoint"/>
-        <param value="1" name="checkAxf"/>
+        <param name="linkType" value="0"/>
+        <param name="jClock" value="10000000"/>
+        <param name="uClock" value="1000000"/>
+        <param name="commPort" value="COM9"/>
+        <param name="commBaud" value="9600"/>
+        <param name="bleName" value=""/>
+        <param name="localIP" value=""/>
+        <param name="localPort" value=""/>
+        <param name="remoteIP" value=""/>
+        <param name="remotePort" value=""/>
+        <param name="rttAddr" value="20000000"/>
+        <param name="rttFreq" value="16000"/>
+        <param name="sampleInterval" value="10"/>
+        <param name="uiInterval" value="50"/>
+        <param name="maxPoint" value="100"/>
+        <param name="checkAxf" value="1"/>
     </params>
     <layouts>
-        <param value="AdnQywADAAD/////////+AAACgAAAAVwAAACzgAAAXEAAAZNAAADqQAAAAACAAAACgAAAAAAAAAAFwAACf8AAAVv" name="geometry"/>
-        <param value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAwAUgBUAFRUfU7kiEwAAAAAAP////8AAAAAAAAAAPsAAAAKAFIAVABUZXBjbgAAAAAA/////wAAAAAAAAAA+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPsAAAAIj9CITGXlX9cAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAArAD///8AAAoAAAAE8AAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAAMT/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAAJG/////wAAAAAAAAAA" name="state"/>
+        <param name="geometry" value="AdnQywADAAD/////////+AAACgAAAAVwAAACzwAAAVMAAAcwAAAEGwAAAAACAAAACgAAAAAAAAAAFwAACf8AAAVv"/>
+        <param name="state" value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAwAUgBUAFRUfU7kiEwAAAAAAP////8AAAAAAAAAAPsAAAAKAFIAVABUZXBjbgAAAAAA/////wAAAAAAAAAA+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPsAAAAIj9CITGXlX9cAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAArAD///8AAAoAAAAE8AAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAAMT/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAAJG/////wAAAAAAAAAA"/>
     </layouts>
     <tabs curPage="0">
-        <tab geometry="AdnQywADAAAAAAAAAAAAAAAAB2gAAATBAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAAAAAB2gAAATB" state="AAAA/wAAAAD9AAAAAgAAAAEAAAXtAAAA1vwCAAAAA/sAAAAIj9CITGXlX9cAAAAAAP////8AAABdAP////sAAAAMAFIAVABUVH1O5IhMAAAAAAD/////AAAAxAD////7AAAACgBSAFQAVGVwY24AAAAAAP////8AAAEPAP///wAAAAMAAAdpAAAEwvwBAAAAAfwAAAAAAAAHaQAAAMoA/////AEAAAAC+wAAAAZm8n6/ADABAAAAAAAABMYAAABjAP////sAAAAGZXBQPAAwAQAABMoAAAKfAAAAYwD///8AAAdpAAAAAAAAAAQAAAAEAAAACAAAAAj8AAAAAA==" checked="1" title="标签页0"/>
+        <tab title="标签页0" geometry="AdnQywADAAAAAAAAAAAAAAAAB2gAAATBAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAAAAAB2gAAATB" checked="1" state="AAAA/wAAAAD9AAAAAgAAAAEAAAXtAAAA1vwCAAAAA/sAAAAIj9CITGXlX9cAAAAAAP////8AAABdAP////sAAAAMAFIAVABUVH1O5IhMAAAAAAD/////AAAAwAD////7AAAACgBSAFQAVGVwY24AAAAAAP////8AAAEPAP///wAAAAMAAAdpAAAEwvwBAAAAAfwAAAAAAAAHaQAAAMoA/////AEAAAAC+wAAAAZm8n6/ADABAAAAAAAABMYAAABjAP////sAAAAGZXBQPAAwAQAABMoAAAKfAAAAYwD///8AAAdpAAAAAAAAAAQAAAAEAAAACAAAAAj8AAAAAA=="/>
     </tabs>
     <forms>
-        <form title="Form" type="0"/>
-        <form title="自定义变量" lv-width="150,100,100,100,100,100,100,100,100,100" type="1"/>
-        <form title="寄存器变量" chip="" lv-width="150,100,100,100,100,100,100,100,100,100" type="13"/>
-        <form title="代码变量" lv-width="178,100,100,100,320,100,100,204,100,100" type="2" mapFile="./project/MDK_V5/objects/MPS_MotorDriver.axf"/>
-        <form visible="0" title="运行日志" page="0" type="3" floating="0"/>
-        <form visible="0" title="RTT命令行" checkTStamp="0" encode="GBK" page="0" syncFilePath="" type="4" floating="0" sync2File="0"/>
-        <form max="500" trigName="" lineStyle="1" visible="0" scatterStyle="1" title="RTT数据" subMode="0" trigType="0" autoRange="1" page="0" type="5" xCount="1000" scrollType="0" trigValue="0" floating="0" min="-500" xTag="0"/>
-        <form visible="0" title="电机控制" lv-width="150,100,100,100,100" page="-1" type="12" floating="0">
-            <var lower="0" desc="速度设定" upper="100" step="1" name=""/>
-            <var lower="0" desc="电流设定" upper="100" step="1" name=""/>
-            <var lower="0" desc="功率设定" upper="100" step="1" name=""/>
-            <var lower="0" desc="电机启停" upper="1" step="1" name=""/>
+        <form type="0" title="Form"/>
+        <form type="1" title="自定义变量" lv-width="150,100,100,100,100,100,100,100,100,100"/>
+        <form chip="" type="13" title="寄存器变量" lv-width="150,100,100,100,100,100,100,100,100,100"/>
+        <form mapFile="./project/MDK_V5/objects/MPS_MotorDriver.axf" type="2" title="代码变量" lv-width="178,100,100,100,320,100,100,204,100,100"/>
+        <form floating="0" visible="0" type="3" title="运行日志" page="0"/>
+        <form syncFilePath="" floating="0" visible="0" checkTStamp="0" type="4" title="RTT命令行" encode="GBK" sync2File="0" page="0"/>
+        <form xCount="1000" trigValue="0" floating="0" visible="0" scatterStyle="1" scrollType="0" type="5" title="RTT数据" xTag="0" trigName="" min="-500" autoRange="1" subMode="0" max="500" lineStyle="1" page="0" trigType="0"/>
+        <form floating="0" visible="0" type="12" title="电机控制" lv-width="150,100,100,100,100" page="-1">
+            <var name="" step="1" upper="100" desc="速度设定" lower="0"/>
+            <var name="" step="1" upper="100" desc="电流设定" lower="0"/>
+            <var name="" step="1" upper="100" desc="功率设定" lower="0"/>
+            <var name="" step="1" upper="1" desc="电机启停" lower="0"/>
         </form>
-        <form visible="0" title="Form" chip="0" page="-1" type="6" floating="0"/>
-        <form lv-hidden="" visible="1" title="数值0" page="0" lv-width="215,243,100,100,100,60,100,100,120,100,100,715" type="7" floating="0">
-            <var addr="0x20001448" formula="" desc="s_motor_control.state" showType="Enum" color="" unit="" name="s_motor_control.state" subvar="0" interval="10"/>
-            <var addr="0x2000144c" formula="" desc="s_motor_control.fault_flags" showType="Unsigned" color="" unit="" name="s_motor_control.fault_flags" subvar="0" interval="10"/>
-            <var addr="0x20001450" formula="" desc="s_motor_control.iq_ref_ma" showType="Signed" color="" unit="" name="s_motor_control.iq_ref_ma" subvar="0" interval="10"/>
-            <var addr="0x20001454" formula="" desc="s_motor_control.speed_ref_rpm" showType="Signed" color="" unit="" name="s_motor_control.speed_ref_rpm" subvar="0" interval="10"/>
-            <var addr="0x20001458" formula="" desc="s_motor_control.position_ref_mdeg" showType="Signed" color="" unit="" name="s_motor_control.position_ref_mdeg" subvar="0" interval="10"/>
-            <var addr="0x20000030" formula="" desc="s_dbg_ta" showType="Unsigned" color="" unit="" name="s_dbg_ta" subvar="0" interval="10"/>
-            <var addr="0x20000032" formula="" desc="s_dbg_tb" showType="Unsigned" color="" unit="" name="s_dbg_tb" subvar="0" interval="10"/>
-            <var addr="0x20000034" formula="" desc="s_dbg_tc" showType="Unsigned" color="" unit="" name="s_dbg_tc" subvar="0" interval="10"/>
-            <var addr="0x20000036" formula="" desc="s_dbg_ia_raw" showType="Unsigned" color="" unit="" name="s_dbg_ia_raw" subvar="0" interval="10"/>
-            <var addr="0x20000038" formula="" desc="s_dbg_ib_raw" showType="Unsigned" color="" unit="" name="s_dbg_ib_raw" subvar="0" interval="10"/>
-            <var addr="0x2000003a" formula="" desc="s_dbg_ic_raw" showType="Unsigned" color="" unit="" name="s_dbg_ic_raw" subvar="0" interval="10"/>
-            <var addr="0x20000044" formula="" desc="s_vbus_cached" showType="Real" color="" unit="" name="s_vbus_cached" subvar="0" interval="10"/>
-            <var addr="0x20000078" formula="" desc="s_dbg_v_alpha_mv" showType="Signed" color="" unit="" name="s_dbg_v_alpha_mv" subvar="0" interval="10"/>
-            <var addr="0x2000007c" formula="" desc="s_dbg_v_beta_mv" showType="Signed" color="" unit="" name="s_dbg_v_beta_mv" subvar="0" interval="10"/>
-            <var addr="0x20000074" formula="" desc="s_dbg_theta_mrad" showType="Signed" color="" unit="" name="s_dbg_theta_mrad" subvar="0" interval="10"/>
-            <var addr="" formula="" desc="s_sin" showType="Real" color="" unit="" name="s_sin" subvar="0" interval="10"/>
-            <var addr="0x2000006c" formula="" desc="s_enc_theta_e" showType="Real" color="" unit="" name="s_enc_theta_e" subvar="0" interval="10"/>
-            <var addr="0x20000050" formula="" desc="s_ol_theta_e" showType="Real" color="" unit="" name="s_ol_theta_e" subvar="0" interval="10"/>
-            <var addr="0x2000011c" formula="" desc="s_last_raw16" showType="Unsigned" color="" unit="" name="s_last_raw16" subvar="0" interval="10"/>
-            <var addr="0x20001449" formula="" desc="s_motor_control.mode" showType="Enum" color="" unit="" name="s_motor_control.mode" subvar="0" interval="10"/>
+        <form chip="0" floating="0" visible="0" type="6" title="Form" page="-1"/>
+        <form floating="0" visible="1" lv-hidden="" type="7" title="数值0" page="0" lv-width="215,243,100,100,100,60,100,100,120,100,100,715">
+            <var name="s_motor_control.state" addr="0x20001440" color="" desc="s_motor_control.state" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.fault_flags" addr="0x20001444" color="" desc="s_motor_control.fault_flags" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.iq_ref_ma" addr="0x20001448" color="" desc="s_motor_control.iq_ref_ma" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.speed_ref_rpm" addr="0x2000144c" color="" desc="s_motor_control.speed_ref_rpm" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.position_ref_mdeg" addr="0x20001450" color="" desc="s_motor_control.position_ref_mdeg" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.mode" addr="0x20001441" color="" desc="s_motor_control.mode" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw16" addr="0x2000120c" color="" desc="s_snapshot.raw16" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw_unwrapped" addr="0x20001210" color="" desc="s_snapshot.raw_unwrapped" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw_delta" addr="0x20001214" color="" desc="s_snapshot.raw_delta" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.mech_mdeg" addr="0x20001218" color="" desc="s_snapshot.mech_mdeg" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.elec_mrad" addr="0x2000121c" color="" desc="s_snapshot.elec_mrad" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.speed_raw" addr="0x20001220" color="" desc="s_snapshot.speed_raw" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.last_rejected_raw16" addr="0x20001222" color="" desc="s_snapshot.last_rejected_raw16" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.last_rejected_delta" addr="0x20001224" color="" desc="s_snapshot.last_rejected_delta" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.valid" addr="0x20001226" color="" desc="s_snapshot.valid" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.fresh" addr="0x20001227" color="" desc="s_snapshot.fresh" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.spike_rejected" addr="0x20001228" color="" desc="s_snapshot.spike_rejected" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.sample_count" addr="0x2000122c" color="" desc="s_snapshot.sample_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.accept_count" addr="0x20001230" color="" desc="s_snapshot.accept_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.bus_error_count" addr="0x20001234" color="" desc="s_snapshot.bus_error_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.spike_count" addr="0x20001238" color="" desc="s_snapshot.spike_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.stale_count" addr="0x2000123c" color="" desc="s_snapshot.stale_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
         </form>
-        <form max="500" title="曲线0" page="0" xCount="669.275" xTag="0" filterType="1" trigName="" refName="" autoRange="1" refValue="0" trigType="0" trigValue="0" visible="1" lineStyle="1" min="-500" floating="0" subMode="0" scrollType="0" type="8" refType="0" scatterStyle="1">
-            <var desc="s_dbg_ta" subPlot="0" color="#ff0000" name="s_dbg_ta"/>
-            <var desc="s_dbg_tb" subPlot="0" color="#00ff00" name="s_dbg_tb"/>
-            <var desc="s_dbg_tc" subPlot="0" color="#00ffff" name="s_dbg_tc"/>
-            <var desc="s_dbg_v_alpha_mv" subPlot="0" color="#ff00ff" name="s_dbg_v_alpha_mv"/>
-            <var desc="s_dbg_v_beta_mv" subPlot="0" color="#aa55ff" name="s_dbg_v_beta_mv"/>
-            <var desc="s_sin" subPlot="2" color="#2ca8fe" name="s_sin"/>
-            <var desc="s_ol_theta_e" subPlot="1" color="#00b42a" name="s_ol_theta_e"/>
-            <var desc="s_enc_theta_e" subPlot="1" color="#800000" name="s_enc_theta_e"/>
+        <form xTag="0" min="-500" page="0" type="8" max="500" trigValue="0" floating="0" subMode="0" title="曲线0" autoRange="1" filterType="1" visible="1" refName="" refValue="0" refType="0" xCount="1092.36" trigType="0" scatterStyle="1" scrollType="0" lineStyle="1" trigName="">
+            <var name="s_snapshot.raw16" color="#ff0000" desc="s_snapshot.raw16" subPlot="0"/>
+            <var name="s_snapshot.raw_delta" color="#00ffff" desc="s_snapshot.raw_delta" subPlot="1"/>
+            <var name="s_snapshot.mech_mdeg" color="#ff00ff" desc="s_snapshot.mech_mdeg" subPlot="2"/>
         </form>
     </forms>
 </lksscope>

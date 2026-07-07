@@ -458,6 +458,11 @@
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\encoder_service.c</FilePath>
             </File>
+            <File>
+              <FileName>encoder_tracker.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\encoder_tracker.c</FilePath>
+            </File>
           </Files>
         </Group>
         <Group>
@@ -502,6 +507,11 @@
               <FileName>motor_encoder_at32m412.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\platform\at32m412\motor_encoder_at32m412.c</FilePath>
+            </File>
+            <File>
+              <FileName>encoder_acq_timer_at32m412.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\platform\at32m412\encoder_acq_timer_at32m412.c</FilePath>
             </File>
             <File>
               <FileName>motor_protect_at32m412.c</FileName>

@@ -54,6 +54,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/application/motor_control/fault_manager.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_calibration.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/encoder_service.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/encoder_tracker.c
     ${CMAKE_SOURCE_DIR}/application/motor_app.c
     ${CMAKE_SOURCE_DIR}/application/motor_shell.c
     ${CMAKE_SOURCE_DIR}/middlewares/msp/ma600/ma600a.c
@@ -61,6 +62,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_pwm_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/current_sense_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_encoder_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/encoder_acq_timer_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_protect_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/flash_calibration_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/clock_at32m412.c

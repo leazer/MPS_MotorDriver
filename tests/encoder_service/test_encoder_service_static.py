@@ -3,6 +3,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "application" / "motor_control" / "encoder_service.h"
 SOURCE = ROOT / "application" / "motor_control" / "encoder_service.c"
+TRACKER_HEADER = ROOT / "application" / "motor_control" / "encoder_tracker.h"
+TRACKER_SOURCE = ROOT / "application" / "motor_control" / "encoder_tracker.c"
+ACQ_TIMER_HEADER = ROOT / "platform" / "at32m412" / "encoder_acq_timer_at32m412.h"
+ACQ_TIMER_SOURCE = ROOT / "platform" / "at32m412" / "encoder_acq_timer_at32m412.c"
 CMAKE = ROOT / "CMakeLists.txt"
 MDK_PROJECT = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
 
@@ -18,6 +22,8 @@ def test_encoder_service_public_api_exists():
         "encoder_snapshot_t",
         "encoder_service_init",
         "encoder_service_update_from_isr",
+        "encoder_service_update_sample",
+        "encoder_service_acquire_once",
         "encoder_service_poll_once_thread",
         "encoder_service_get_snapshot",
         "encoder_service_get_electrical_angle_rad",
@@ -77,18 +83,56 @@ def test_only_platform_adapter_calls_ma600a_read_angle_speed():
     assert callers == [expected]
 
 
-def test_isr_consumes_encoder_service():
+def test_foc_isr_does_not_read_encoder_spi():
     isr = read(ROOT / "application" / "motor_control" / "motor_control_isr.c")
-    assert "encoder_service_update_from_isr" in isr
-    assert "encoder_service_get_snapshot" in isr
+    assert "encoder_service_update_from_isr" not in isr
+    assert "motor_encoder_read_raw_frame" not in isr
+    assert "ma600a_read_angle_and_speed_raw" not in isr
+    assert "encoder_tracker_get_electrical_angle_rad" in isr
 
 
-def test_isr_only_counts_bus_failures_as_sensor_consecutive_failures():
+def test_encoder_tracker_module_exists_and_is_built():
+    header = read(TRACKER_HEADER)
+    source = read(TRACKER_SOURCE)
+    cmake = read(CMAKE)
+    mdk = read(MDK_PROJECT)
+    for token in [
+        "encoder_tracker_init",
+        "encoder_tracker_update_sample",
+        "encoder_tracker_tick",
+        "encoder_tracker_get_electrical_angle_rad",
+        "encoder_tracker_get_speed_rad_s",
+        "encoder_tracker_get_sample_age_ticks",
+    ]:
+        assert token in header + source
+    assert "application/motor_control/encoder_tracker.c" in cmake
+    assert "<FileName>encoder_tracker.c</FileName>" in mdk
+
+
+def test_isr_uses_tracker_sample_age_for_sensor_failures():
     isr = read(ROOT / "application" / "motor_control" / "motor_control_isr.c")
-    start = isr.index("enc_ret = encoder_service_update_from_isr();")
-    body = isr[start:isr.index("if (s_enc_consec_fail >= ENC_FAIL_THRESHOLD)", start)]
-    assert "enc_ret == -1" in body
-    assert "enc_ret != 0" not in body
+    assert "encoder_tracker_get_sample_age_ticks" in isr
+    assert "s_enc_consec_fail" not in isr
+
+
+def test_encoder_acquisition_uses_hardware_timer_not_thread():
+    header = read(ACQ_TIMER_HEADER)
+    source = read(ACQ_TIMER_SOURCE)
+    app = read(ROOT / "application" / "motor_app.c")
+    cmake = read(CMAKE)
+    mdk = read(MDK_PROJECT)
+    for token in [
+        "encoder_acq_timer_at32m412_init",
+        "TMR7_GLOBAL_IRQHandler",
+        "encoder_service_acquire_once",
+        "TMR7_GLOBAL_IRQn",
+    ]:
+        assert token in header + source
+    assert "encoder_acq_timer_at32m412_init" in app
+    assert "encoder_acq_thread" not in app
+    assert "rt_thread_init(&s_encoder_acq_thread" not in app
+    assert "platform/at32m412/encoder_acq_timer_at32m412.c" in cmake
+    assert "<FileName>encoder_acq_timer_at32m412.c</FileName>" in mdk
 
 
 def test_calibration_consumes_encoder_service_snapshots():
@@ -139,8 +183,10 @@ if __name__ == "__main__":
     test_encoder_service_does_not_use_rtthread_api_in_isr_update()
     test_encoder_service_can_resync_after_stale_or_repeated_spikes()
     test_only_platform_adapter_calls_ma600a_read_angle_speed()
-    test_isr_consumes_encoder_service()
-    test_isr_only_counts_bus_failures_as_sensor_consecutive_failures()
+    test_foc_isr_does_not_read_encoder_spi()
+    test_encoder_tracker_module_exists_and_is_built()
+    test_isr_uses_tracker_sample_age_for_sensor_failures()
+    test_encoder_acquisition_uses_hardware_timer_not_thread()
     test_calibration_consumes_encoder_service_snapshots()
     test_encoder_shell_commands_exist()
     test_enc_status_polls_once_when_motor_is_idle()
