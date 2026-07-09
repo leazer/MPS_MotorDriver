@@ -88,8 +88,8 @@ extern "C" {
 /* add user code end dma define */
 
 /* Private defines -------------------------------------------------------------*/
-#define LED_PIN    GPIO_PINS_0
-#define LED_GPIO_PORT    GPIOA
+#define LED_PIN    GPIO_PINS_8
+#define LED_GPIO_PORT    GPIOB
 #define VBUS_PIN    GPIO_PINS_6
 #define VBUS_GPIO_PORT    GPIOA
 #define SOC_PIN    GPIO_PINS_7

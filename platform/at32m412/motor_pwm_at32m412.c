@@ -66,9 +66,9 @@ void motor_pwm_at32m412_init(void)
     tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_1, TRUE);
     tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_2, TRUE);
     tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_3, TRUE);
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_1, TMR1_ARR / 2u);
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, TMR1_ARR / 2u);
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_3, TMR1_ARR / 2u);
+    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, TMR1_ARR / 2u);
+    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, TMR1_ARR / 2u);
+    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, TMR1_ARR / 2u);
 
     /* --- 4. CH4: 输出比较模式, 比较值=1 (谷底), 触发 ADC 注入序列 ---
      * MP6540H 电流镜仅在高边导通时反映相电流 (高边关闭时 I_LOAD=0, V_SO=V_REF).
@@ -116,9 +116,9 @@ void motor_pwm_at32m412_enable_output(void)
 
 void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint16_t phase_w)
 {
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_1, pwm_clamp_duty(phase_u));
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_2, pwm_clamp_duty(phase_v));
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_3, pwm_clamp_duty(phase_w));
+    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, pwm_clamp_duty(phase_u));
+    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, pwm_clamp_duty(phase_v));
+    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, pwm_clamp_duty(phase_w));
 }
 
 void motor_pwm_at32m412_enable_ovf_irq(void)

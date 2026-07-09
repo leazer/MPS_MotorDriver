@@ -39,7 +39,7 @@ void board_gpio_init(void)
     gpio_default_para_init(&gpio_init_struct);
 
     /* 先写电平再配模式, 避免上电毛刺导致 MP6540H 误使能.
-     * LED (PA0) 负极接 IO, 低电平点亮 -> 初始置高 (灭). */
+     * LED (PB8) 负极接 IO, 低电平点亮 -> 初始置高 (灭). */
     gpio_bits_set(LED_GPIO_PORT, LED_PIN);             /* LED 灭 (高电平) */
     gpio_bits_reset(PWM_EN_GPIO_PORT, PWM_EN_PIN);     /* MP6540H EN=低, 禁用 */
     gpio_bits_set(SPI2_CS_GPIO_PORT, SPI2_CS_PIN);     /* SPI CS=高, 片选无效 */
@@ -50,13 +50,17 @@ void board_gpio_init(void)
     gpio_init_struct.gpio_pull = GPIO_PULL_UP;
     gpio_init(nFAULT_GPIO_PORT, &gpio_init_struct);
 
-    /* LED (PA0) + SPI2_CS (PA15): 推挽输出 */
+    /* LED (PB8): 推挽输出 */
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;
     gpio_init_struct.gpio_out_type = GPIO_OUTPUT_PUSH_PULL;
     gpio_init_struct.gpio_mode = GPIO_MODE_OUTPUT;
-    gpio_init_struct.gpio_pins = LED_PIN | SPI2_CS_PIN;
+    gpio_init_struct.gpio_pins = LED_PIN;
     gpio_init_struct.gpio_pull = GPIO_PULL_NONE;
-    gpio_init(GPIOA, &gpio_init_struct);
+    gpio_init(LED_GPIO_PORT, &gpio_init_struct);
+
+    /* SPI2_CS (PA15): 推挽输出 */
+    gpio_init_struct.gpio_pins = SPI2_CS_PIN;
+    gpio_init(SPI2_CS_GPIO_PORT, &gpio_init_struct);
 
     /* PWM_EN (PB10): 推挽输出, 默认低 (MP6540H 禁用) */
     gpio_init_struct.gpio_drive_strength = GPIO_DRIVE_STRENGTH_MODERATE;

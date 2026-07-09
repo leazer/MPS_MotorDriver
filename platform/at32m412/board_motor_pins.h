@@ -23,6 +23,11 @@ extern "C" {
 #define PWMC_PIN_SOURCE          GPIO_PINS_SOURCE10
 #define PWMC_IOMUX               GPIO_MUX_1
 
+/* V2 硬件 PWMA/PWMC 对调: phase U -> CH3, phase W -> CH1 */
+#define PWM_PHASE_U_TMR_CHANNEL  TMR_SELECT_CHANNEL_3
+#define PWM_PHASE_V_TMR_CHANNEL  TMR_SELECT_CHANNEL_2
+#define PWM_PHASE_W_TMR_CHANNEL  TMR_SELECT_CHANNEL_1
+
 /* ===== MP6540H 使能 / 故障 ===== */
 #define PWM_EN_GPIO_PORT         GPIOB
 #define PWM_EN_PIN               GPIO_PINS_10
@@ -91,9 +96,9 @@ extern "C" {
 #define USART1_RX_PIN_SOURCE     GPIO_PINS_SOURCE7
 #define USART1_RX_IOMUX          GPIO_MUX_7
 
-/* ===== LED (PA0, 负极接 IO, 低电平点亮) ===== */
-#define LED_GPIO_PORT            GPIOA
-#define LED_PIN                  GPIO_PINS_0
+/* ===== LED (PB8, 负极接 IO, 低电平点亮) ===== */
+#define LED_GPIO_PORT            GPIOB
+#define LED_PIN                  GPIO_PINS_8
 
 /* ===== PWM 时序常数 (spec §1.3, 适配 180MHz sclk) ===== */
 #define PWM_FREQUENCY_HZ         16000u
