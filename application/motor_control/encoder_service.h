@@ -10,10 +10,15 @@ extern "C" {
 
 typedef struct {
     uint16_t raw16;
+    uint16_t corrected_raw16;
     int32_t  raw_unwrapped;
+    int32_t  corrected_unwrapped;
     int16_t  raw_delta;
+    int16_t  corrected_delta;
     int32_t  mech_mdeg;
     int32_t  elec_mrad;
+    int32_t  speed_mech_mrad_s;
+    int32_t  speed_elec_mrad_s;
     int16_t  speed_raw;
     uint16_t last_rejected_raw16;
     int16_t  last_rejected_delta;
@@ -34,6 +39,7 @@ int  encoder_service_acquire_once(void);
 int  encoder_service_poll_once_thread(void);
 bool encoder_service_get_snapshot(encoder_snapshot_t *out);
 float encoder_service_get_electrical_angle_rad(void);
+float encoder_service_get_speed_electrical_rad_s(void);
 uint16_t encoder_service_get_raw16(void);
 void encoder_service_set_zero(uint16_t raw);
 uint16_t encoder_service_get_zero(void);

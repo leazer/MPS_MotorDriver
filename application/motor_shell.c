@@ -557,10 +557,15 @@ static void enc_status(int argc, char **argv)
 
     rt_kprintf("=== encoder service ===\n");
     rt_kprintf("raw16     : %u\n", snap.raw16);
+    rt_kprintf("corr16    : %u\n", snap.corrected_raw16);
     rt_kprintf("delta     : %d\n", snap.raw_delta);
+    rt_kprintf("corr_delta: %d\n", snap.corrected_delta);
     rt_kprintf("unwrap    : %ld\n", (long)snap.raw_unwrapped);
+    rt_kprintf("corr_unw  : %ld\n", (long)snap.corrected_unwrapped);
     rt_kprintf("mech_mdeg : %ld\n", (long)snap.mech_mdeg);
     rt_kprintf("elec_mrad : %ld\n", (long)snap.elec_mrad);
+    rt_kprintf("spd_mech  : %ld mrad/s\n", (long)snap.speed_mech_mrad_s);
+    rt_kprintf("spd_elec  : %ld mrad/s\n", (long)snap.speed_elec_mrad_s);
     rt_kprintf("speed_raw : %d\n", snap.speed_raw);
     rt_kprintf("counts    : sample=%lu accept=%lu bus=%lu spike=%lu stale=%lu\n",
                snap.sample_count, snap.accept_count, snap.bus_error_count,

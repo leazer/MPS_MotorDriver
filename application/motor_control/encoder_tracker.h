@@ -18,6 +18,7 @@ typedef struct {
 } encoder_tracker_snapshot_t;
 
 void encoder_tracker_init(void);
+void encoder_tracker_reset(void);
 void encoder_tracker_update_sample(uint16_t raw16, uint8_t valid);
 void encoder_tracker_tick(void);
 float encoder_tracker_get_electrical_angle_rad(void);

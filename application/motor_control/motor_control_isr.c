@@ -146,7 +146,6 @@ void motor_control_isr_tick(void)
     float    gain;
 
     s_dbg_tick_count++;
-    board_led_at32m412_set(true);
     mc = motor_app_get_control_rw();
 
     /* ===== Stage 3: 读 ADC 注入序列 (硬件已由 TMR1_CH4 顶点触发完成) ===== */
@@ -395,6 +394,7 @@ int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s)
     s_ol_active      = true;
     s_align_active   = false;   /* 互斥: 启动 open_loop 前清 ALIGN */
     s_cur_active     = false;   /* 互斥: 清 CURRENT (Stage 5, 根因1对称清理) */
+    encoder_tracker_reset();
 
     /* 切模式 + 使能 */
     mc->mode  = MOTOR_CONTROL_MODE_OPEN_LOOP;
@@ -415,12 +415,13 @@ void motor_control_isr_open_loop_stop(void)
 
     /* 互斥清理: open_loop 与 ALIGN 共用 ISR/EN, 任一 stop 都清两个 active 标志.
      * 否则 mc_align 后 mc_stop (open_loop_stop) 不清 s_align_active, 后续 mc_open
-     * 会让两个分支同时命中, mc_calibrate 检查 align_active() 误报 "motor running". */
+     * 会让两个分支同时命中, enc_cal_start 检查 align_active() 误报 "motor running". */
     s_ol_active = false;
     s_align_active = false;
     s_ol_vd     = 0.0f;
     s_ol_theta_e = 0.0f;
     s_align_vd  = 0.0f;
+    encoder_tracker_reset();
 
     /* 先停 ISR, 再改输出 (避免竞态) */
     motor_pwm_at32m412_disable_ovf_irq();
@@ -494,6 +495,7 @@ void motor_control_isr_align_stop(void)
     s_align_vd = 0.0f;
     s_ol_vd = 0.0f;
     s_ol_theta_e = 0.0f;
+    encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
@@ -558,6 +560,7 @@ int motor_control_isr_current_start(float iq_ref_A)
     current_loop_set_targets(0.0f, iq_ref_A);
     s_cur_theta_e = 0.0f;
     s_cur_active = true;
+    encoder_tracker_reset();
 
     /* 切 CURRENT 模式 + 使能 (同 align_start 模式) */
     mc = motor_app_get_control_rw();
@@ -577,6 +580,7 @@ void motor_control_isr_current_stop(void)
     s_cur_active = false;
     s_cur_theta_e = 0.0f;
     current_loop_reset();
+    encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
