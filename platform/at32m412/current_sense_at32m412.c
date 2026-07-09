@@ -9,7 +9,7 @@
  *   SOC (PA7/ADC2_IN7)  <- MP6540H CS C
  *   VBUS (PA6/ADC2_IN6) <- 母线电压分压 (1/6)
  *
- * 注入序列 (preempt): SOA -> SOB -> SOC, TMR1_CH4 上升沿触发 (PWM 顶点)
+ * 注入序列 (preempt): SOA -> SOB -> SOC, TMR1_CH4 上升沿触发
  * 普通序列 (ordinary): VBUS, 软件触发读取
  *
  * ADC_CLK = 180MHz / 6 = 30MHz, 12-bit, 采样 1.5 cycle, 转换 ~0.7us/通道

@@ -90,9 +90,8 @@ extern "C" {
 #define PID_ID_KI                       100.0f
 #define PID_IQ_KP                       0.5f
 #define PID_IQ_KI                       100.0f
-#define PID_CURRENT_INTEGRAL_LIMIT      6.0f   /* 与 out_limit 一致, 防积分饱和超过输出限幅 */
-#define PID_CURRENT_OUT_LIMIT           6.0f   /* SVPWM 线性区上限 ~Vbus/sqrt(3)≈6.93V (12V母线).
-                                                * Stage 5 验收: 9V 致过调制→OC, 降到 6V 安全 (CLAUDE.md 已记). */
+#define PID_CURRENT_INTEGRAL_LIMIT      2.0f   /* 台架保守限幅: 避免低电流调试时进入占空比饱和区 */
+#define PID_CURRENT_OUT_LIMIT           2.0f   /* 12V 母线下先限制到 ±2V, 待采样/零点稳定后再上调 */
 #define IQ_MAX_A                        4.5f          /* 电流环目标上限 (Stage 5: 8.0->4.5, < 过流 5.0A 留 0.5A 余量) */
 #define IQ_MAX_MA                       4500          /* mA, shell 层用 */
 #define CURRENT_RAMP_DEFAULT_RPM        300.0f        /* ramp 模式默认角速度 (电角度 rpm), 调试用 */

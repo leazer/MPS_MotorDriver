@@ -132,6 +132,8 @@ typedef struct {
     uint32_t cur_hits;      /* CURRENT 分支命中计数 */
     int32_t  id_ma;         /* 实测 d 轴电流 (毫安) */
     int32_t  iq_ma;         /* 实测 q 轴电流 (毫安) */
+    int32_t  id_avg_ma;     /* 最近窗口平均 d 轴电流 (毫安) */
+    int32_t  iq_avg_ma;     /* 最近窗口平均 q 轴电流 (毫安) */
     int32_t  id_ref_ma;     /* 目标 Id (毫安) */
     int32_t  iq_ref_ma;     /* 目标 Iq (毫安) */
     /* Stage 6: 速度环快照 */

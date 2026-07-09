@@ -4,6 +4,8 @@
 #include "motor_control_isr.h"
 
 /* 内部: 限幅单通道占空比 */
+#define PWM_ADC_TRIGGER_TICKS 2500u
+
 static uint16_t pwm_clamp_duty(uint16_t duty)
 {
     if (duty > PWM_DUTY_MAX) {
@@ -70,16 +72,16 @@ void motor_pwm_at32m412_init(void)
     tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, TMR1_ARR / 2u);
     tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, TMR1_ARR / 2u);
 
-    /* --- 4. CH4: 输出比较模式, 比较值=1 (谷底), 触发 ADC 注入序列 ---
-     * MP6540H 电流镜仅在高边导通时反映相电流 (高边关闭时 I_LOAD=0, V_SO=V_REF).
-     * 中心对齐 PWM 在谷底 (counter≈0) 时三相高边全部导通, 是唯一保证
-     * 三相电流均可测的采样点. (区别于低边采样电阻拓扑在顶点采样.)
+    /* --- 4. CH4: 输出比较模式, 触发 ADC 注入序列 ---
+     * MP6540H 电流镜采样窗口需避开谷底零矢量. V2 台架扫点确认:
+     * CH4=1..2000 时 ALIGN/电流环反馈接近零; CH4=2500 时低电流
+     * enc 闭环 iq_avg 可跟随 50/100/200mA, 因此默认使用 2500 ticks.
      * 必须调用 tmr_output_channel_config 配置 CH4 为输出比较, 否则不产生
      * 比较事件, ADC 注入序列无法被 TMR1_CH4 触发 (spec §3.2).
      * 参考工程 mc_hwio.c: tmr_output_channel_config(ADC_TIMER, CH4, ...) */
     tmr_output_channel_config(TMR1, TMR_SELECT_CHANNEL_4, &tmr_output_struct);
     tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_4, TRUE);
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, 1);   /* 谷底触发 */
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, PWM_ADC_TRIGGER_TICKS);
 
     /* --- 5. 刹车/死区: 不使能刹车 (MP6540H nFAULT 走 EXINT, 不接 TMR1_BRK) --- */
     tmr_brkdt_struct.brk_enable = FALSE;
@@ -119,6 +121,14 @@ void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint1
     tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, pwm_clamp_duty(phase_u));
     tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, pwm_clamp_duty(phase_v));
     tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, pwm_clamp_duty(phase_w));
+}
+
+void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks)
+{
+    if (ticks > TMR1_ARR) {
+        ticks = TMR1_ARR;
+    }
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, ticks);
 }
 
 void motor_pwm_at32m412_enable_ovf_irq(void)

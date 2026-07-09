@@ -31,6 +31,7 @@
 #define OPEN_LOOP_VD_MAX    (VBUS_OVERVOLTAGE_THRESHOLD_V)     /* 18V 上限 */
 #define OPEN_LOOP_VD_MIN    0.0f
 #define OPEN_LOOP_SPEED_MAX 628.0f   /* 100 Hz 电角度上限 (~600rpm @7pp) */
+#define CURRENT_AVG_WINDOW_TICKS 256u /* 16ms @16kHz, 供低电流台架诊断 */
 
 /* 开环安全 VBUS: ADC 未就绪时的回退值 (避免除零) */
 #define VBUS_FALLBACK_V     12.0f
@@ -110,6 +111,11 @@ static volatile uint8_t  s_dbg_cal_progress;
 static volatile uint32_t s_dbg_cur_hits;
 static volatile int32_t  s_dbg_id_ma;
 static volatile int32_t  s_dbg_iq_ma;
+static volatile int32_t  s_dbg_id_avg_ma;
+static volatile int32_t  s_dbg_iq_avg_ma;
+static int32_t           s_cur_id_sum_ma;
+static int32_t           s_cur_iq_sum_ma;
+static uint16_t          s_cur_avg_count;
 
 /* Stage 6: 速度环快照 */
 static volatile uint32_t s_dbg_spd_hits;
@@ -122,6 +128,29 @@ static volatile float    s_vbus_cached = VBUS_FALLBACK_V;
 #define VOLTS_TO_MV_F       1000.0f
 
 /* (Stage 5 电流环将引入限幅 helper, 此处预留位置) */
+
+static void current_debug_reset_average(void)
+{
+    s_cur_id_sum_ma = 0;
+    s_cur_iq_sum_ma = 0;
+    s_cur_avg_count = 0u;
+    s_dbg_id_avg_ma = 0;
+    s_dbg_iq_avg_ma = 0;
+}
+
+static void current_debug_accumulate_average(int32_t id_ma, int32_t iq_ma)
+{
+    s_cur_id_sum_ma += id_ma;
+    s_cur_iq_sum_ma += iq_ma;
+    s_cur_avg_count++;
+    if (s_cur_avg_count >= CURRENT_AVG_WINDOW_TICKS) {
+        s_dbg_id_avg_ma = s_cur_id_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
+        s_dbg_iq_avg_ma = s_cur_iq_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
+        s_cur_id_sum_ma = 0;
+        s_cur_iq_sum_ma = 0;
+        s_cur_avg_count = 0u;
+    }
+}
 
 void motor_control_isr_tick(void)
 {
@@ -151,7 +180,7 @@ void motor_control_isr_tick(void)
     s_dbg_tick_count++;
     mc = motor_app_get_control_rw();
 
-    /* ===== Stage 3: 读 ADC 注入序列 (硬件已由 TMR1_CH4 顶点触发完成) ===== */
+    /* ===== Stage 3: 读 ADC 注入序列 (硬件已由 TMR1_CH4 触发完成) ===== */
     current_sense_at32m412_read_raw(&ia_raw, &ib_raw, &ic_raw);
     s_dbg_ia_raw = ia_raw;
     s_dbg_ib_raw = ib_raw;
@@ -332,6 +361,7 @@ void motor_control_isr_tick(void)
             foc_park(i_alpha, i_beta, theta, &id, &iq);
             s_dbg_id_ma = (int32_t)(id * 1000.0f);
             s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+            current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
 
             /* 电流环 PI (Id 目标 0, Iq 目标 = current_loop_set_targets 设定值) */
             current_loop_run(id, iq, &vd_ref, &vq_ref);
@@ -369,6 +399,7 @@ void motor_control_isr_tick(void)
             foc_park(i_alpha, i_beta, theta, &id, &iq);
             s_dbg_id_ma = (int32_t)(id * 1000.0f);
             s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+            current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
 
             current_loop_run(id, iq, &vd_ref, &vq_ref);
 
@@ -592,6 +623,7 @@ int motor_control_isr_current_start(float iq_ref_A)
      *     不在此重置, 以免覆盖调用方意图. */
     current_loop_reset();
     current_loop_set_targets(0.0f, iq_ref_A);
+    current_debug_reset_average();
     s_cur_theta_e = 0.0f;
     s_cur_active = true;
     encoder_tracker_reset();
@@ -615,6 +647,7 @@ void motor_control_isr_current_stop(void)
     s_spd_active = false;
     s_cur_theta_e = 0.0f;
     current_loop_reset();
+    current_debug_reset_average();
     encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
@@ -667,6 +700,7 @@ int motor_control_isr_speed_start(float target_rad_s)
     speed_loop_reset();
     speed_loop_set_target_rad_s(target_rad_s);
     current_loop_set_targets(0.0f, 0.0f);
+    current_debug_reset_average();
     s_spd_active = true;
     encoder_tracker_reset();
 
@@ -688,6 +722,7 @@ void motor_control_isr_speed_stop(void)
     speed_loop_reset();
     current_loop_reset();
     current_loop_set_targets(0.0f, 0.0f);
+    current_debug_reset_average();
     encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
@@ -739,6 +774,8 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->cur_hits       = s_dbg_cur_hits;
     dbg->id_ma          = s_dbg_id_ma;
     dbg->iq_ma          = s_dbg_iq_ma;
+    dbg->id_avg_ma      = s_dbg_id_avg_ma;
+    dbg->iq_avg_ma      = s_dbg_iq_avg_ma;
     dbg->id_ref_ma      = (int32_t)(current_loop_get_id_ref_A() * 1000.0f);
     dbg->iq_ref_ma      = (int32_t)(current_loop_get_iq_ref_A() * 1000.0f);
     dbg->spd_hits       = s_dbg_spd_hits;

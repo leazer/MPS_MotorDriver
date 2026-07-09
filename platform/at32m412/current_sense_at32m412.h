@@ -15,9 +15,9 @@ extern "C" {
  *   - 普通序列 (ordinary): 1 通道 [VBUS], 软件触发读取
  *   - ADC_CLK = 180MHz / 6 = 30MHz, 12-bit, 采样时间 1.5 cycle
  *
- * 顶点采样原理 (spec §3.2): 中心对齐 PWM 计数器到达 ARR(顶点)时,
- *   CH4 比较匹配触发 ADC 注入转换. 此时高边关断/低边导通,
- *   电流镜反映真实相电流. 转换 ~3us 后 TMR1_OVF 中断读结果.
+ * 采样原理: TMR1_CH4 比较匹配触发 ADC 注入转换, FOC ISR 读取上次转换结果.
+ *   MP6540H 电流镜需要在有效导通窗口采样; 触发点由 PWM 模块设置并可用
+ *   pwm_adc_trig 临时调整.
  */
 
 /* ADC2 注入序列初始化 (GPIO + ADC2 base + preempt 3ch + TMR1_CH4 触发 + 校准) */

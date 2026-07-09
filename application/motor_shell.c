@@ -39,7 +39,7 @@ static void pwm_info(int argc, char **argv)
     rt_kprintf("duty_max : %u (95%%)\n", PWM_DUTY_MAX);
     rt_kprintf("CCR1/2/3 : %u / %u / %u\n",
                TMR1->c1dt, TMR1->c2dt, TMR1->c3dt);
-    rt_kprintf("CCR4     : %u (ADC top trigger)\n", TMR1->c4dt);
+    rt_kprintf("CCR4     : %u (ADC trigger)\n", TMR1->c4dt);
     rt_kprintf("EN(PB10) : %u\n",
                (gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) ? 1 : 0));
 }
@@ -60,6 +60,25 @@ static void pwm_duty(int argc, char **argv)
     rt_kprintf("duty set: u=%u v=%u w=%u (clamped to %u)\n", u, v, w, PWM_DUTY_MAX);
 }
 MSH_CMD_EXPORT(pwm_duty, set 3-phase duty ticks: pwm_duty <u> <v> <w>);
+
+/* ---- pwm_adc_trig <ticks>: 设置 TMR1_CH4 ADC 采样触发点 ---- */
+static void pwm_adc_trig(int argc, char **argv)
+{
+    long ticks;
+    if (argc != 2) {
+        rt_kprintf("usage: pwm_adc_trig <ticks>  (0..%u)\n", TMR1_ARR);
+        rt_kprintf("current : %u\n", TMR1->c4dt);
+        return;
+    }
+    ticks = strtol(argv[1], NULL, 0);
+    if (ticks < 0 || ticks > (long)TMR1_ARR) {
+        rt_kprintf("FAIL: ticks range 0..%u\n", TMR1_ARR);
+        return;
+    }
+    motor_pwm_at32m412_set_adc_trigger_ticks((uint16_t)ticks);
+    rt_kprintf("ADC trigger CH4=%u\n", TMR1->c4dt);
+}
+MSH_CMD_EXPORT(pwm_adc_trig, set ADC trigger compare ticks: pwm_adc_trig <ticks>);
 
 /* ---- pwm_en <0|1>: 控制 MP6540H EN 引脚 ---- */
 static void pwm_en(int argc, char **argv)
@@ -209,6 +228,8 @@ static void mc_debug(int argc, char **argv)
                (unsigned long)dbg.cur_hits,
                (long)dbg.id_ma, (long)dbg.iq_ma,
                (long)dbg.id_ref_ma, (long)dbg.iq_ref_ma);
+    rt_kprintf("cur_avg   : id=%ldmA iq=%ldmA window=256\n",
+               (long)dbg.id_avg_ma, (long)dbg.iq_avg_ma);
     rt_kprintf("spd       : active=%d hits=%lu target=%ld cmd=%ld meas=%ld mrad/s iq_ref=%ldmA\n",
                motor_control_isr_speed_active() ? 1 : 0,
                (unsigned long)dbg.spd_hits,
