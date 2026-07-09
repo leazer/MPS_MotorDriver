@@ -23,6 +23,7 @@ extern "C" {
 #define CURRENT_GAIN_DEFAULT_A_PER_LSB  (ADC_LSB_VOLTS / MP6540H_VSO_PER_AMP_TYP)
                                                           /* ~3.16e-3 A/LSB typ */
 #define IQ_OVERCURRENT_A                5.0f
+#define OVERCURRENT_DEBOUNCE_TICKS      4u    /* 0.25ms @16kHz, 防单拍 ADC 毛刺误触发, 真实过流仍快速保护 */
 #define IMBALANCE_THRESHOLD_A           1.5f
 #define IMBALANCE_DEBOUNCE_TICKS        100u  /* 连续 N tick 不平衡才触发故障 (防 ADC 开关噪声毛刺爆发, Stage 5 调试发现).
                                               * 100 tick = 6.25ms, 真实硬件故障会持续, 毛刺爆发不会持续这么久. */

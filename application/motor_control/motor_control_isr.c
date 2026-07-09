@@ -32,11 +32,6 @@
 #define OPEN_LOOP_VD_MIN    0.0f
 #define OPEN_LOOP_SPEED_MAX 628.0f   /* 100 Hz 电角度上限 (~600rpm @7pp) */
 
-/* VBUS 采样分频: 16kHz / 16 = 1kHz (spec §4.3.6 VBUS 1kHz 检查) */
-#define VBUS_SAMPLE_DIV     16u
-/* 欠压/过压检查分频: 1kHz (与 VBUS 采样同步) */
-#define VBUS_CHECK_DIV      16u
-
 /* 开环安全 VBUS: ADC 未就绪时的回退值 (避免除零) */
 #define VBUS_FALLBACK_V     12.0f
 
@@ -97,6 +92,7 @@ static volatile uint16_t s_dbg_ib_raw;
 static volatile uint16_t s_dbg_ic_raw;
 static volatile uint32_t s_dbg_oc_hits;     /* 过流保护命中计数 */
 static volatile uint32_t s_dbg_imbal_hits;  /* 电流不平衡命中计数 */
+static uint16_t          s_oc_consec;       /* 连续相过流计数 (防单拍 ADC 毛刺误触发) */
 static uint16_t          s_imbal_consec;    /* 连续不平衡计数 (防单拍 ADC 毛刺误触发) */
 
 /* Stage 4: 编码器 + ALIGN + 标定快照 */
@@ -118,9 +114,9 @@ static volatile int32_t  s_dbg_iq_ma;
 /* Stage 6: 速度环快照 */
 static volatile uint32_t s_dbg_spd_hits;
 
-/* VBUS 缓存 (1kHz 刷新, ISR 内直接用, 避免每 tick 软件触发 ADC) */
+/* VBUS 缓存: FOC ISR 内不触发普通 ADC 转换, 避免与注入序列冲突.
+ * 后续 VBUS 保护应移到低频线程或独立硬件触发路径. */
 static volatile float    s_vbus_cached = VBUS_FALLBACK_V;
-static uint16_t          s_vbus_sample_cnt = 0;
 
 #define RAD_TO_MRAD_F       1000.0f
 #define VOLTS_TO_MV_F       1000.0f
@@ -161,21 +157,8 @@ void motor_control_isr_tick(void)
     s_dbg_ib_raw = ib_raw;
     s_dbg_ic_raw = ic_raw;
 
-    /* VBUS 1kHz 采样 (分频 16), 软件触发普通转换 (~0.7us) */
-    if (++s_vbus_sample_cnt >= VBUS_SAMPLE_DIV) {
-        s_vbus_sample_cnt = 0;
-        vbus = current_sense_at32m412_read_vbus();
-        s_vbus_cached = vbus;
-        s_dbg_vbus_mv = (int32_t)(vbus * VOLTS_TO_MV_F);
-
-        /* 欠压/过压检查 (spec §4.3.6, 与 VBUS 采样同步 1kHz) */
-        if (vbus < VBUS_UNDERVOLTAGE_THRESHOLD_V) {
-            fault_manager_set(FAULT_UNDERVOLTAGE);
-        } else if (vbus > VBUS_OVERVOLTAGE_THRESHOLD_V) {
-            fault_manager_set(FAULT_OVERVOLTAGE);
-        }
-    }
     vbus = s_vbus_cached;
+    s_dbg_vbus_mv = (int32_t)(vbus * VOLTS_TO_MV_F);
 
     /* 电流换算 (raw -> A, spec §4.3.4). 零偏由标定流程设置. */
     current_sense_at32m412_get_offset(&ofs_a, &ofs_b, &ofs_c);
@@ -193,7 +176,12 @@ void motor_control_isr_tick(void)
         fabsf(ib) > IQ_OVERCURRENT_A ||
         fabsf(ic) > IQ_OVERCURRENT_A) {
         s_dbg_oc_hits++;
-        fault_manager_set(FAULT_OVERCURRENT);
+        s_oc_consec++;
+        if (s_oc_consec >= OVERCURRENT_DEBOUNCE_TICKS) {
+            fault_manager_set(FAULT_OVERCURRENT);
+        }
+    } else {
+        s_oc_consec = 0u;
     }
     /* 不平衡: ia+ib+ic 应接近 0 (基尔霍夫), 超阈值视为故障.
      * 防毛刺: 连续 IMBALANCE_DEBOUNCE_TICKS 才锁存故障 (Stage 5 调试发现
