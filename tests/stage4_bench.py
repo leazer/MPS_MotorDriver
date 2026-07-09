@@ -19,21 +19,21 @@ Stage 4 + 4b 台架自动化验收脚本 (MA600A 编码器 + 旁轴非线性标�
     A2. enc_status bus/spike errors 不增长
   Section B: ALIGN 零点对齐
     B1. mc_align 1000 -> 转子锁定, mc_debug.align active=1
-    B2. mc_zero 显示 align_angle 非零
+    B2. enc_zero 显示 align_raw 非零
     B3. mc_stop -> align active=0
   Section C: 开环 enc 跟踪
     C1. mc_open 1000 300 enc -> ISR 用编码器电角度
     C2. mc_debug.encoder enc_raw 随转动变化, enc_alive=1, enc_errors 不增长
     C3. mc_current 电流正弦, 无过流
     C4. mc_stop
-  Section D: 旁轴标定 (~25s, 电机自动正反拖动)
-    D1. mc_calibrate 启动
-    D2. 轮询 mc_cal_status 直到 DONE 或 ABORTED (超时 60s)
+  Section D: 旁轴标定 (~10s, 电机自动正反拖动)
+    D1. enc_cal_start auto 启动
+    D2. 轮询 enc_cal_status 直到 DONE 或 ABORTED
     D3. DONE 时 max_resid < 1000 mdeg (1°)
-    D4. mc_cal_dump 256 点表非零
+    D4. enc_cal_dump 256 点表非零
   Section E: 持久化
     E1. (需手动断电重启) 重启后 fault 无 CAL_INVALID, encoder.cal_valid=1
-    E2. mc_cal_erase + 重启 -> fault 有 CAL_INVALID
+    E2. enc_cal_erase + 重启 -> fault 有 CAL_INVALID
 
   注: E1/E2 涉及断电重启, 脚本只做 D 完成后的即时校验 + 打印 E 的手动步骤提示.
 
@@ -46,7 +46,7 @@ Stage 4 + 4b 台架自动化验收脚本 (MA600A 编码器 + 旁轴非线性标�
   1. JLink + 板子已接, 限流电源 12V 限流 0.5A
   2. flash.bat rebuild 烧录最新固件
   3. 串口连 PB6(TX)/PB7(RX) 115200, 板子已上电见 msh 提示符
-  4. 电机轴可自由旋转 (标定会自动拖动 5+5 圈)
+  4. 电机轴可自由旋转 (标定会自动拖动 2+2 机械圈)
 
 作者注: 脚本不替代示波器/电流探头验收, 只做 msh 命令链路的功能性自动化.
         示波器看 PA8/9/10 PWM 和电流探头看三相波形仍需人工执行.
@@ -61,7 +61,7 @@ BAUD = 115200
 
 # ---- 验收阈值 (与 motor_params.h 对齐) ----
 CAL_MAX_RESIDUAL_MDEG = 1000   # spec §4.7.9: 残差峰峰 < 1°
-CAL_TOTAL_TIMEOUT_S   = 120    # 标定总超时 (ALIGN 0.5s + FWD 35s + REV 35s + compute + flash ≈ 72s, 留余量)
+CAL_TOTAL_TIMEOUT_S   = 30     # 标定总超时 (ALIGN 0.5s + FWD 4.2s + REV 4.2s + compute + flash ≈ 10s, 留余量)
 # MA600A 角度寄存器为 16-bit (ma600a 驱动 ma600a_read_angle_deg 用 /65536 转角度).
 ENC_RAW_RANGE_16BIT   = (0, 65535)
 
@@ -268,15 +268,15 @@ def section_b_align(ser, rep):
     rep.record("B1b_align_active", ok,
                "mc_debug align active=%s (期望 1)" % align_active)
 
-    # B2: mc_zero 显示 align_angle 非零
-    out_zero = send_cmd(ser, "mc_zero", wait_after=0.5)
+    # B2: enc_zero 显示 align_raw 非零
+    out_zero = send_cmd(ser, "enc_zero", wait_after=0.5)
     rep.raw["B_zero"] = out_zero
     f_zero = parse_kv(out_zero)
-    align_angle = to_int(f_zero.get("align_angle"))
-    # align_angle 可能恰好是 0 (极端), 主要看 ALIGN 采到了值; 0 也算通过但标记
+    align_angle = to_int(f_zero.get("align_raw"))
+    # align_raw 可能恰好是 0 (极端), 主要看 ALIGN 采到了值; 0 也算通过但标记
     ok = align_angle is not None
     rep.record("B2_align_angle", ok,
-               "align_angle=%s (ALIGN 采集值, 0..65535)" % align_angle)
+               "align_raw=%s (ALIGN 采集值, 0..65535)" % align_angle)
 
     # B3: mc_stop
     out_stop = send_cmd(ser, "mc_stop", wait_after=1.0)
@@ -381,23 +381,23 @@ def section_c_open_loop_enc(ser, rep):
 
 
 def section_d_calibrate(ser, rep):
-    """Section D: 旁轴标定 (~25s)."""
-    print("\n--- Section D: 旁轴标定 (~25s, 电机会自动旋转) ---")
-    print("  *** 标定期间电机自动正反拖动 5+5 圈, 请勿触碰 ***")
+    """Section D: 旁轴标定 (~10s)."""
+    print("\n--- Section D: 旁轴标定 (~10s, 电机会自动旋转) ---")
+    print("  *** 标定期间电机自动正反拖动 2+2 机械圈, 请勿触碰 ***")
 
     send_cmd(ser, "fault_clear", wait_after=0.5)
     send_cmd(ser, "mc_stop", wait_after=0.5)
 
-    # D1: mc_calibrate
-    out = send_cmd(ser, "mc_calibrate", wait_after=1.0)
+    # D1: enc_cal_start auto
+    out = send_cmd(ser, "enc_cal_start auto", wait_after=1.0)
     rep.raw["D_calibrate_start"] = out
-    ok = "Calibration started" in out
-    rep.record("D1_started", ok, "mc_calibrate 应返回 'Calibration started'")
+    ok = "encoder calibration started" in out
+    rep.record("D1_started", ok, "enc_cal_start auto 应返回 started")
     if not ok:
         rep.record("D2_completed", False, "未启动, 跳过轮询")
         return
 
-    # D2: 轮询 mc_cal_status 直到 DONE/ABORTED
+    # D2: 轮询 enc_cal_status 直到 DONE/ABORTED
     # 同时采 mc_debug 快照, 观察标定期间 theta/enc_raw/CCR 是否真在变化 (诊断电机是否旋转)
     print("  轮询标定状态 (最多 %ds)..." % CAL_TOTAL_TIMEOUT_S)
     deadline = time.time() + CAL_TOTAL_TIMEOUT_S
@@ -408,7 +408,7 @@ def section_d_calibrate(ser, rep):
     debug_snapshots = []   # [(elapsed_s, state, mc_debug_output)]
     while time.time() < deadline:
         time.sleep(2.0)
-        out_st = send_cmd(ser, "mc_cal_status", wait_after=0.5)
+        out_st = send_cmd(ser, "enc_cal_status", wait_after=0.5)
         poll_count += 1
         m_state = re.search(r"state\s*:\s*\d+\s+\((\w+)\)", out_st)
         m_prog = re.search(r"progress\s*:\s*(\d+)%", out_st)
@@ -475,8 +475,8 @@ def section_d_calibrate(ser, rep):
     rep.record("D3_residual_ok", ok,
                "max_resid=%s mdeg (期望 |.| < %d)" % (max_resid, CAL_MAX_RESIDUAL_MDEG))
 
-    # D4: mc_cal_dump 256 点表非零
-    out_dump = send_cmd(ser, "mc_cal_dump", wait_after=1.0)
+    # D4: enc_cal_dump 256 点表非零
+    out_dump = send_cmd(ser, "enc_cal_dump", wait_after=1.0)
     rep.raw["D_dump"] = out_dump
     # 统计非零点数
     nums = re.findall(r"-?\d+", out_dump)
@@ -497,8 +497,8 @@ def section_e_persistence_prompt(ser, rep):
     print("\n--- Section E: 持久化 (需手动断电重启) ---")
     print("  E1. 断电重启板子, 重新运行本脚本 (加 skip_calib 参数),")
     print("      执行 'fault' 应无 CAL_INVALID, 'encoder' cal_valid=1")
-    print("  E2. 运行 'mc_cal_erase' 后断电重启,")
-    print("      'fault' 应有 CAL_INVALID, 可重新 mc_calibrate")
+    print("  E2. 运行 'enc_cal_erase' 后断电重启,")
+    print("      'fault' 应有 CAL_INVALID, 可重新 enc_cal_start auto")
     print("  (这两步涉及断电, 脚本不自动执行, 请手动验证并记录)")
 
     # 即时校验: 当前 cal_valid 应为 1 (D 完成后)

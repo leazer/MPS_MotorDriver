@@ -33,7 +33,7 @@ BAUD = 115200
 IQ_STEADY_ERR_PCT = 5.0      # 稳态误差 < 5% (ramp)
 IQ_STEADY_ERR_PCT_ENC = 50.0 # enc 模式: 空载电机 BEMF 跑飞 + 标定残差致 Iq 纹波大,
                               # 容差放宽. 真正精度需机械负载 + Stage 6 速度环 + 闭环重标定.
-CAL_TOTAL_TIMEOUT_S = 120    # 标定超时 (复用 stage4)
+CAL_TOTAL_TIMEOUT_S = 30     # 标定超时 (ALIGN 0.5s + FWD/REV 约 8.4s + 余量)
 
 
 # ============================================================
@@ -166,7 +166,7 @@ def section_b(ser, log):
     稳态 Iq 精度由 Section D (enc 模式) 验证."""
     log.append("=== Section B: ramp mode (force cal invalid) ===")
     # B1: 擦除标定 + 重启
-    send_cmd(ser, "mc_cal_erase", wait_after=1.0)
+    send_cmd(ser, "enc_cal_erase", wait_after=1.0)
     # reboot 不能走 send_cmd 的 read_all (会吃掉重启 banner+提示符,
     # 导致后续 wait_msh 看到空缓冲区而超时). 直接发送再轮询等提示符.
     for ch in "reboot":
@@ -220,12 +220,12 @@ def section_c(ser, log):
 def section_d(ser, log):
     """D: enc 模式 (需标定表)"""
     log.append("=== Section D: enc mode (with calibration) ===")
-    # D1: 标定 (~72s)
-    send_cmd(ser, "mc_calibrate", wait_after=2.0)
+    # D1: 标定 (~10s)
+    send_cmd(ser, "enc_cal_start auto", wait_after=2.0)
     deadline = time.time() + CAL_TOTAL_TIMEOUT_S
     done = False
     while time.time() < deadline:
-        out = send_cmd(ser, "mc_cal_status", wait_after=1.0)
+        out = send_cmd(ser, "enc_cal_status", wait_after=1.0)
         if "DONE" in out:
             done = True
             break

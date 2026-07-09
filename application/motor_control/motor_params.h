@@ -51,16 +51,17 @@ extern "C" {
 /* CRC 覆盖范围: table(512) + mech_zero_raw(2) + pole_pairs(1) + reserved2(1) = 516 字节 */
 #define CAL_CRC_PAYLOAD_SIZE            (CAL_TABLE_POINTS * 2u + 2u + 1u + 1u)
 /* 标定旋转: 以机械圈为单位, 需覆盖编码器机械全范围 (0..65535) 至少 1 圈,
- * 取 5 圈保证直方图每箱被均匀采样. 开环电角度斜坡驱动, 电角度圈数 = 机械圈 × 极对数.
+ * 取 2 圈缩短标定时间, 质量由 covered_bins/max_residual 门限兜底.
+ * 开环电角度斜坡驱动, 电角度圈数 = 机械圈 × 极对数.
  * 注: 早期 CAL_TURNS_PER_DIRECTION=5 被当电角度圈用, 5电圈=0.71机械圈, 覆盖不足致标定失败. */
-#define CAL_MECH_TURNS_PER_DIRECTION   5u
+#define CAL_MECH_TURNS_PER_DIRECTION   2u
 #define CAL_TURNS_PER_DIRECTION        (CAL_MECH_TURNS_PER_DIRECTION * MOTOR_POLE_PAIRS)  /* 电角度圈数 */
-#define CAL_SPIN_SPEED_RPM             60      /* 电角度 rpm (开环斜坡速度), 60rpm=1圈/秒 */
-/* 状态切换按旋转时长判断 (非样本数): 35电圈@60rpm=35s/方向.
+#define CAL_SPIN_SPEED_RPM             200     /* 电角度 rpm (开环斜坡速度), 200rpm=3.33圈/秒 */
+/* 状态切换按旋转时长判断 (非样本数): 14电圈@200rpm=4.2s/方向.
  * 早期按 CAL_SAMPLES_PER_DIRECTION 切状态, 20480@16kHz=1.28s采满, 采样远快于旋转,
  * 采满时电机几乎没转. 改为按时间切状态后, 采样持续填直方图, RAM 累加器 int32 不溢出. */
-#define CAL_SPIN_DURATION_MS           35000u  /* 每方向旋转时长 (35电圈@60rpm=35s) */
-#define CAL_SPIN_TIMEOUT_MS            50000u  /* 每方向 50s 超时 (35s+余量) */
+#define CAL_SPIN_DURATION_MS           4200u   /* 每方向旋转时长 (14电圈@200rpm=4.2s) */
+#define CAL_SPIN_TIMEOUT_MS            8000u   /* 每方向 8s 超时 (4.2s+余量) */
 #define CAL_SAMPLES_PER_DIRECTION      20480u  /* 保留供参考 (进度估算已改用时间) */
 #define CAL_MAX_RESIDUAL_MDEG           1000     /* 验收: 残差峰峰 < 1° (0.001° 为单位) */
 

@@ -283,7 +283,7 @@ static void mc_cur(int argc, char **argv)
         return;
     }
     if (use_enc && !motor_calibration_is_valid()) {
-        rt_kprintf("FAIL: cal invalid, run mc_calibrate or use ramp mode\n");
+        rt_kprintf("FAIL: cal invalid, run enc_cal_start auto or use ramp mode\n");
         return;
     }
 
@@ -438,7 +438,7 @@ MSH_CMD_EXPORT(vbus, read VBUS voltage (software triggered));
 /* ---- mc_align <vd_mv>: 启动 ALIGN 模式, 转子对齐 d 轴 0° (spec §4.5.3) ----
  * vd_mv: d 轴锁定电压 (毫伏), 典型 500..2000, 上限 18000
  * 持续期间转子被强制对齐, 手转有阻力. 停止用 mc_stop.
- * ALIGN 结束后用 mc_zero 读取对齐角度并写入零点.
+ * ALIGN 结束后用 enc_zero 读取对齐角度并写入零点.
  */
 static void mc_align(int argc, char **argv)
 {
@@ -455,7 +455,7 @@ static void mc_align(int argc, char **argv)
     ret = motor_control_isr_align_start(vd_volts);
     if (ret == 0) {
         rt_kprintf("ALIGN started: vd=%ld mV. Rotor locking to d-axis 0deg.\n", vd_mv);
-        rt_kprintf("Wait 500ms, then 'mc_zero' to capture alignment angle.\n");
+        rt_kprintf("Wait 500ms, then 'enc_zero <align_angle>' to set zero.\n");
         rt_kprintf("Stop with 'mc_stop'.\n");
     } else if (ret == -1) {
         rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
@@ -465,60 +465,14 @@ static void mc_align(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_align, start ALIGN mode: mc_align <vd_mv>);
 
-/* ---- mc_zero [raw16]: 读取或设置零点 (mech_zero_raw, 16-bit) ----
- * 无参: 显示当前零点 + ALIGN 采集到的对齐角度
- * 有参: 手动设置零点 (raw 16-bit, 0..65535)
- */
-static void mc_zero(int argc, char **argv)
-{
-    if (argc == 1) {
-        uint16_t align_angle;
-        align_angle = motor_control_isr_get_align_angle();
-        rt_kprintf("zero_raw    : %u\n", motor_encoder_get_zero());
-        rt_kprintf("align_angle : %u (from ALIGN, 0 if ALIGN not done)\n", align_angle);
-        rt_kprintf("To set: mc_zero <raw16>\n");
-    } else {
-        long raw;
-        raw = strtol(argv[1], NULL, 0);
-        if (raw < 0 || raw > 65535) {
-            rt_kprintf("FAIL: raw must be 0..65535\n");
-            return;
-        }
-        motor_encoder_set_zero((uint16_t)raw);
-        rt_kprintf("zero set to %u\n", (unsigned)raw);
-    }
-}
-MSH_CMD_EXPORT(mc_zero, get/set encoder zero: mc_zero [raw16]);
-
-/* ---- mc_calibrate: 触发旁轴非线性标定 (spec §4.7.5, Stage 4b) ----
- * 流程: ALIGN 对齐 -> 正转 5 圈 -> 反转 5 圈 -> 计算表 -> 写 FLASH
- * 全程约 25s. 期间电机自动启停. 进度用 mc_cal_status 查看.
- * 中止: fault_clear 后 mc_cal_status 显示 ABORTED, 旧标定保留.
- */
-static void mc_calibrate(int argc, char **argv)
-{
-    (void)argc; (void)argv;
-    if (fault_manager_any_fatal()) {
-        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
-        return;
-    }
-    if (motor_control_isr_open_loop_active() || motor_control_isr_align_active()) {
-        rt_kprintf("FAIL: motor running. Run 'mc_stop' first.\n");
-        return;
-    }
-    motor_calibration_start_mode(CAL_MODE_AUTO_OPEN_LOOP);
-    rt_kprintf("Calibration started. ~25s (ALIGN 0.5s + FWD 10s + REV 10s + compute + flash).\n");
-    rt_kprintf("Progress: 'mc_cal_status'. Motor will spin automatically.\n");
-}
-MSH_CMD_EXPORT(mc_calibrate, start off-axis calibration);
-
-/* ---- mc_cal_status: 打印标定状态/进度/残差 (Stage 4b) ---- */
-static void mc_cal_status(int argc, char **argv)
+/* ---- enc_cal_status: 打印标定状态/进度/质量 (Stage 4b) ---- */
+static void enc_cal_status(int argc, char **argv)
 {
     static const char *state_names[] = {
         "IDLE", "ZERO_ALIGN", "SPIN_FWD", "SPIN_REV",
         "COMPUTE", "WRITE_FLASH", "DONE", "ABORTED"
     };
+    motor_calibration_quality_t q;
     cal_state_t st;
     (void)argc; (void)argv;
     st = motor_calibration_get_state();
@@ -532,17 +486,24 @@ static void mc_cal_status(int argc, char **argv)
                (long)(motor_calibration_get_max_residual() / 1000),
                (long)(motor_calibration_get_max_residual() % 1000));
     rt_kprintf("threshold : %ld mdeg\n", (long)CAL_MAX_RESIDUAL_MDEG);
+    if (motor_calibration_get_quality(&q)) {
+        rt_kprintf("quality   : samples=%lu bins=%u min_bin=%u residual=%d ok=%u\n",
+                   q.sample_count, q.covered_bins, q.min_bin_count,
+                   q.max_residual_mdeg, q.quality_ok);
+        rt_kprintf("spikes    : start=%lu end=%lu nonmono=%lu\n",
+                   q.spike_count_start, q.spike_count_end, q.nonmonotonic_count);
+    }
 }
-MSH_CMD_EXPORT(mc_cal_status, show calibration state and progress);
+MSH_CMD_EXPORT(enc_cal_status, show encoder calibration status and quality);
 
-/* ---- mc_cal_dump: 打印 256 点校正表 (每行 8 点, 单位 0.001°) ---- */
-static void mc_cal_dump(int argc, char **argv)
+/* ---- enc_cal_dump: 打印 256 点校正表 (每行 8 点, 单位 0.001°) ---- */
+static void enc_cal_dump(int argc, char **argv)
 {
     const int16_t *table;
     uint16_t i;
     (void)argc; (void)argv;
     if (!motor_calibration_is_valid()) {
-        rt_kprintf("calibration not valid. Run 'mc_calibrate' first.\n");
+        rt_kprintf("calibration not valid. Run 'enc_cal_start auto' first.\n");
         return;
     }
     table = motor_calibration_get_table();
@@ -554,12 +515,12 @@ static void mc_cal_dump(int argc, char **argv)
         }
     }
 }
-MSH_CMD_EXPORT(mc_cal_dump, dump 256-point calibration table);
+MSH_CMD_EXPORT(enc_cal_dump, dump encoder calibration table);
 
-/* ---- mc_cal_erase: 擦除 FLASH 标定区 (Stage 4b) ----
+/* ---- enc_cal_erase: 擦除 FLASH 标定区 (Stage 4b) ----
  * 擦除后重启会触发 FAULT_CAL_INVALID, 可重新标定.
  */
-static void mc_cal_erase(int argc, char **argv)
+static void enc_cal_erase(int argc, char **argv)
 {
     bool ok;
     (void)argc; (void)argv;
@@ -571,7 +532,7 @@ static void mc_cal_erase(int argc, char **argv)
         rt_kprintf("FAIL: erase failed (flash protected or timeout)\n");
     }
 }
-MSH_CMD_EXPORT(mc_cal_erase, erase FLASH calibration sector);
+MSH_CMD_EXPORT(enc_cal_erase, erase encoder calibration sector);
 
 /* ---- enc_status: 打印 encoder_service 快照与诊断 ---- */
 static void enc_status(int argc, char **argv)
@@ -633,7 +594,11 @@ static void enc_zero(int argc, char **argv)
     long raw;
 
     if (argc == 1) {
+        uint16_t align_angle;
+        align_angle = motor_control_isr_get_align_angle();
         rt_kprintf("zero_raw  : %u\n", encoder_service_get_zero());
+        rt_kprintf("align_raw : %u (from ALIGN, 0 if ALIGN not done)\n", align_angle);
+        rt_kprintf("To set: enc_zero <raw16>\n");
         return;
     }
     raw = strtol(argv[1], NULL, 0);
@@ -661,9 +626,22 @@ static void enc_cal_start(int argc, char **argv)
             return;
         }
     }
+    if (fault_manager_any_fatal()) {
+        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+        return;
+    }
+    if (motor_control_isr_open_loop_active() ||
+        motor_control_isr_align_active() ||
+        motor_control_isr_current_active()) {
+        rt_kprintf("FAIL: motor running. Run 'mc_stop' first.\n");
+        return;
+    }
     motor_calibration_start_mode(mode);
     rt_kprintf("encoder calibration started: %s\n",
                (mode == CAL_MODE_MANUAL) ? "manual" : "auto");
+    if (mode == CAL_MODE_AUTO_OPEN_LOOP) {
+        rt_kprintf("estimated time: ~10s (ALIGN 0.5s + FWD 4.2s + REV 4.2s + compute + flash)\n");
+    }
 }
 MSH_CMD_EXPORT(enc_cal_start, start encoder calibration: enc_cal_start [auto|manual]);
 
@@ -674,25 +652,3 @@ static void enc_cal_stop(int argc, char **argv)
     rt_kprintf("encoder manual calibration stop requested\n");
 }
 MSH_CMD_EXPORT(enc_cal_stop, stop manual encoder calibration collection);
-
-static void enc_cal_status(int argc, char **argv)
-{
-    motor_calibration_quality_t q;
-
-    (void)argc; (void)argv;
-    mc_cal_status(0, 0);
-    if (motor_calibration_get_quality(&q)) {
-        rt_kprintf("quality   : samples=%lu bins=%u min_bin=%u residual=%d ok=%u\n",
-                   q.sample_count, q.covered_bins, q.min_bin_count,
-                   q.max_residual_mdeg, q.quality_ok);
-        rt_kprintf("spikes    : start=%lu end=%lu nonmono=%lu\n",
-                   q.spike_count_start, q.spike_count_end, q.nonmonotonic_count);
-    }
-}
-MSH_CMD_EXPORT(enc_cal_status, show encoder calibration status and quality);
-
-static void enc_cal_dump(int argc, char **argv)
-{
-    mc_cal_dump(argc, argv);
-}
-MSH_CMD_EXPORT(enc_cal_dump, dump encoder calibration table);

@@ -73,7 +73,7 @@ uint8_t motor_calibration_get_progress(void);   /* 0..100 */
 
 /* ===== ISR 内采集 (spec §4.7.5 CAL_SPIN_FWD/REV) =====
  * 在 FOC ISR (16kHz) 内调用, 仅在 CAL_SPIN_FWD/REV 状态下累加直方图.
- * 不调 RT-Thread API, 不阻塞. 采集满 CAL_SAMPLES_PER_DIRECTION 自动切下一状态. */
+ * 不调 RT-Thread API, 不阻塞. 状态切换由 motor_calibration_poll() 按旋转时间推进. */
 void motor_calibration_tick(void);
 
 /* ===== 线程上下文状态机推进 (motor_app_run 内调用) =====
@@ -91,7 +91,7 @@ void motor_calibration_abort(void);
 int16_t motor_calibration_get_max_residual(void);          /* 残差最大绝对值, 0.001° 单位 */
 const int16_t *motor_calibration_get_table(void);          /* 当前 RAM 表 (可能为空) */
 uint16_t motor_calibration_get_zero(void);                 /* mech_zero_raw */
-void motor_calibration_set_zero(uint16_t raw);             /* 手动设零点 (mc_zero) */
+void motor_calibration_set_zero(uint16_t raw);             /* 手动设零点 (enc_zero) */
 
 #ifdef __cplusplus
 }
