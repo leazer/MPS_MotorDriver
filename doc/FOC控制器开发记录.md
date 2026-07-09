@@ -281,6 +281,7 @@ generated/
 | 2026-06-22 | 阶段 3 | 已验证 | current_sense_at32m412 ADC2 注入序列 + CH4 谷底触发 + 零偏标定 + 过流/不平衡保护. 台架验证: VBUS 11.9V, 零偏偏差 20-22 LSB, 开环电流 -116~138mA. Keil Code 27428B. 详见 CLAUDE.md Stage 3. |
 | 2026-06-22 | 阶段 4+4b | 已验证/进入后续优化 | MA600A SPI2 接入 + 旁轴标定. 台架验收修复 6 根因: (1) open_loop/align 状态未互斥 (2) SPI GPIO mux+transfer16 (3) motor_encoder 16-bit误左移 (4) 标定旋转电角度圈数致覆盖不足 (5) compute不除采样次数 (6) 采样计数与旋转脱耦改按时间切状态. 2026-07-10 最新标定: 2圈/200 electrical rpm, residual=115mdeg(0.115deg), bins=256, min_bin=420, spikes=0. V2 BSP 硬件映射已提交 9519e6f. |
 | 2026-07-10 | 阶段 4+6 准备 | 已验证/待提交 | 编码器角度标定后 raw16 与电角度周期关系确认正常; TMR7 4kHz 采样、FOC 16kHz. 速度估计由 tracker PI/单点误差驱动收敛为 corrected raw unwrap + 32样本窗口差分, 静止与开环 60/200rpm 均值基本贴近理论值. 下一步以窗口速度作为反馈进入 Stage 6 速度环, 速度环输出 Iq_ref 并增加目标斜坡和限流. |
+| 2026-07-10 | 阶段 6 | 代码完成/待台架验证 | 最小速度闭环已实现: `speed_loop` 1kHz PI + 目标斜坡, 输出 `Iq_ref`; `MOTOR_CONTROL_MODE_SPEED` 复用编码器电角度、电流环和 SVPWM; 新增 `mc_speed <rpm_elec>`、`mc_debug` 速度环快照. 静态测试通过, Keil/MDK 构建 0 Error 0 Warning. 待 COM9 台架验证 60/200 rpm 稳速、方向、限流和停机行为. |
 
 状态枚举：
 

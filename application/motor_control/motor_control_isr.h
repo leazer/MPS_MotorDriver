@@ -82,6 +82,17 @@ bool motor_control_isr_current_active(void);
 void motor_control_isr_current_set_encoder_angle(bool use_enc);
 void motor_control_isr_current_set_speed(float rad_per_s);
 
+/* ===== SPEED 模式接口 (Stage 6) =====
+ *
+ * SPEED 模式:
+ *   - 使用编码器电角度做 Park/IPark 角度。
+ *   - speed_loop 根据电速度反馈输出 Iq_ref。
+ *   - 复用 CURRENT 模式的 Id/Iq 电流环与 SVPWM。
+ */
+int  motor_control_isr_speed_start(float target_rad_s);
+void motor_control_isr_speed_stop(void);
+bool motor_control_isr_speed_active(void);
+
 /* 获取最近一次 ISR 内部状态 (供 msh 观察, 非强一致, 仅调试用)
  * 注意: 所有浮点字段改用定点 (毫伏/毫弧度/毫度) 表示, 因 RT-Thread
  * Nano rt_kprintf 不支持 %f, shell 打印需用整数.
@@ -123,6 +134,12 @@ typedef struct {
     int32_t  iq_ma;         /* 实测 q 轴电流 (毫安) */
     int32_t  id_ref_ma;     /* 目标 Id (毫安) */
     int32_t  iq_ref_ma;     /* 目标 Iq (毫安) */
+    /* Stage 6: 速度环快照 */
+    uint32_t spd_hits;      /* SPEED 分支命中计数 */
+    int32_t  spd_target_mrad_s;
+    int32_t  spd_cmd_mrad_s;
+    int32_t  spd_meas_mrad_s;
+    int32_t  spd_iq_ref_ma;
 } motor_control_isr_debug_t;
 
 void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg);

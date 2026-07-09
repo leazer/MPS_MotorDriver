@@ -165,6 +165,7 @@ MSH_CMD_EXPORT(mc_open, start open-loop: mc_open <vd_mv> <speed_rpm_elec> [enc|r
 static void mc_stop(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    motor_control_isr_speed_stop();        /* Stage 6: 停速度环 */
     motor_control_isr_current_stop();      /* Stage 5: 停电流环 */
     motor_control_isr_align_stop();        /* Stage 4: 停 ALIGN */
     motor_control_isr_open_loop_stop();    /* Stage 2: 停开环 */
@@ -208,6 +209,13 @@ static void mc_debug(int argc, char **argv)
                (unsigned long)dbg.cur_hits,
                (long)dbg.id_ma, (long)dbg.iq_ma,
                (long)dbg.id_ref_ma, (long)dbg.iq_ref_ma);
+    rt_kprintf("spd       : active=%d hits=%lu target=%ld cmd=%ld meas=%ld mrad/s iq_ref=%ldmA\n",
+               motor_control_isr_speed_active() ? 1 : 0,
+               (unsigned long)dbg.spd_hits,
+               (long)dbg.spd_target_mrad_s,
+               (long)dbg.spd_cmd_mrad_s,
+               (long)dbg.spd_meas_mrad_s,
+               (long)dbg.spd_iq_ref_ma);
 }
 MSH_CMD_EXPORT(mc_debug, show FOC ISR internal state);
 
@@ -304,6 +312,48 @@ static void mc_cur(int argc, char **argv)
                (!use_enc && speed_rpm != 0) ? " spinning" : "");
 }
 MSH_CMD_EXPORT(mc_cur, start current loop: mc_cur <iq_ma> [enc|ramp] [rpm_elec]);
+
+/* ---- mc_speed: 启动速度环 (SPEED 模式, Stage 6) ----
+ * mc_speed <rpm_elec>
+ *   rpm_elec: 电角速度目标, 正=正转, 负=反转.
+ */
+static void mc_speed(int argc, char **argv)
+{
+    long rpm_elec;
+    float rad_per_s;
+    int ret;
+
+    if (argc != 2) {
+        rt_kprintf("usage: mc_speed <rpm_elec>\n");
+        rt_kprintf("  rpm_elec: electrical rpm, range +-%d\n", RPM_MAX);
+        return;
+    }
+    rpm_elec = strtol(argv[1], NULL, 0);
+    if (rpm_elec > RPM_MAX || rpm_elec < -RPM_MAX) {
+        rt_kprintf("FAIL: rpm_elec range +-%d\n", RPM_MAX);
+        return;
+    }
+    if (fault_manager_any_fatal()) {
+        rt_kprintf("FAIL: fault active, clear first (fault_clear)\n");
+        return;
+    }
+    if (!motor_calibration_is_valid()) {
+        rt_kprintf("FAIL: cal invalid, run enc_cal_start auto first\n");
+        return;
+    }
+
+    rad_per_s = (float)rpm_elec * 6.28318530718f / 60.0f;
+    ret = motor_control_isr_speed_start(rad_per_s);
+    if (ret == 0) {
+        rt_kprintf("speed loop: target=%ld rpm_elec (%ld mrad/s)\n",
+                   (long)rpm_elec, (long)(rad_per_s * 1000.0f));
+    } else if (ret == -1) {
+        rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else {
+        rt_kprintf("FAIL: speed out of range +-%d rpm_elec\n", RPM_MAX);
+    }
+}
+MSH_CMD_EXPORT(mc_speed, start speed loop: mc_speed <rpm_elec>);
 
 /* ---- mc_cal: 零偏标定 (PWM 50% 时采 1024 次平均, spec §4.3.3) ----
  * 前置条件: PWM 已输出 50% (mc_stop 或开机默认), MP6540H 可使能或禁用.
@@ -544,7 +594,8 @@ static void enc_status(int argc, char **argv)
     (void)argc; (void)argv;
     motor_active = motor_control_isr_open_loop_active() ||
                    motor_control_isr_align_active() ||
-                   motor_control_isr_current_active();
+                   motor_control_isr_current_active() ||
+                   motor_control_isr_speed_active();
 
     if (!motor_active) {
         (void)encoder_service_poll_once_thread();
@@ -637,7 +688,8 @@ static void enc_cal_start(int argc, char **argv)
     }
     if (motor_control_isr_open_loop_active() ||
         motor_control_isr_align_active() ||
-        motor_control_isr_current_active()) {
+        motor_control_isr_current_active() ||
+        motor_control_isr_speed_active()) {
         rt_kprintf("FAIL: motor running. Run 'mc_stop' first.\n");
         return;
     }
