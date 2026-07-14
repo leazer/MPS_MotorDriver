@@ -112,6 +112,11 @@ def parse_current_snapshot(text):
     return snapshot
 
 
+def parse_encoder_calibration_valid(text):
+    valid = re.search(r"(?m)^\s*valid\s*:\s*([01])\s*$", text)
+    return valid is not None and valid.group(1) == "1"
+
+
 def read_current_snapshot(ser):
     text = send_cmd(ser, "mc_debug", wait_after=0.6)
     snapshot = parse_current_snapshot(text)
@@ -155,7 +160,8 @@ def section_a(ser, log):
 
 def section_full_quadrant_current(ser, log):
     status = send_cmd(ser, "enc_cal_status", wait_after=0.3)
-    assert "DONE" in status, "encoder calibration invalid; complete calibration before this test"
+    assert parse_encoder_calibration_valid(status), \
+        "encoder calibration invalid; complete calibration before this test"
     send_cmd(ser, "fault_clear", wait_after=0.2)
 
     for target_ma in CURRENT_TEST_POINTS_MA:

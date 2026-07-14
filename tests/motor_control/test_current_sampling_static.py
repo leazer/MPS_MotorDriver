@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import runpy
 
 ROOT = Path(__file__).resolve().parents[2]
 PWM_C = ROOT / "platform" / "at32m412" / "motor_pwm_at32m412.c"
@@ -159,6 +160,23 @@ def test_bench_matrix_is_full_quadrant_but_stays_below_500ma():
     assert "750" not in re.search(r"CURRENT_TEST_POINTS_MA\s*=\s*\([^\)]*\)", bench).group(0)
 
 
+def test_bench_requires_authoritative_loaded_calibration_validity():
+    bench_path = ROOT / "tests" / "stage5_bench.py"
+    bench = read(bench_path)
+    assert "def parse_encoder_calibration_valid" in bench
+    parse_valid = runpy.run_path(str(bench_path))["parse_encoder_calibration_valid"]
+    assert parse_valid("state : IDLE\nvalid : 1\n")
+    assert not parse_valid("state : DONE\nvalid : 0\n")
+    section_match = re.search(
+        r"def section_full_quadrant_current\([^\n]*\):[\s\S]*?(?=\n\ndef |\n\nif __name__)",
+        bench,
+    )
+    assert section_match
+    section = section_match.group(0)
+    assert "parse_encoder_calibration_valid(status)" in section
+    assert '"DONE" in status' not in section
+
+
 if __name__ == "__main__":
     test_pwm_stages_hardware_and_tracker_from_identical_values()
     test_thread_updates_are_deferred_to_the_update_handler()
@@ -170,4 +188,5 @@ if __name__ == "__main__":
     test_all_fatal_current_faults_use_state_latching_helper()
     test_shell_reports_sample_quality_and_fault_name()
     test_bench_matrix_is_full_quadrant_but_stays_below_500ma()
+    test_bench_requires_authoritative_loaded_calibration_validity()
     print("current sampling static tests passed")
