@@ -11,6 +11,7 @@ PARAMS = ROOT / "application" / "motor_control" / "motor_params.h"
 FAULT_H = ROOT / "application" / "motor_control" / "fault_manager.h"
 SHELL = ROOT / "application" / "motor_shell.c"
 CMAKE = ROOT / "CMakeLists.txt"
+MDK_PROJECT = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
 
 
 def read(path):
@@ -216,6 +217,24 @@ def test_bench_requires_authoritative_loaded_calibration_validity():
     assert '"DONE" in status' not in section
 
 
+def test_current_reconstruction_is_in_cmake_and_keil_motor_control_group():
+    cmake = read(CMAKE)
+    project = read(MDK_PROJECT)
+    assert "application/motor_control/current_reconstruction.c" in cmake
+
+    group = re.search(
+        r"<Group>\s*<GroupName>application/motor_control</GroupName>"
+        r"(?P<body>[\s\S]*?)</Group>",
+        project,
+    )
+    assert group, "missing Keil application/motor_control group"
+    assert "<FileName>current_reconstruction.c</FileName>" in group.group("body")
+    assert (
+        r"<FilePath>..\..\application\motor_control\current_reconstruction.c</FilePath>"
+        in group.group("body")
+    )
+
+
 if __name__ == "__main__":
     test_pwm_stages_hardware_and_tracker_from_identical_values()
     test_thread_updates_are_deferred_to_the_update_handler()
@@ -230,4 +249,5 @@ if __name__ == "__main__":
     test_shell_reports_sample_quality_and_fault_name()
     test_bench_matrix_is_full_quadrant_but_stays_below_500ma()
     test_bench_requires_authoritative_loaded_calibration_validity()
+    test_current_reconstruction_is_in_cmake_and_keil_motor_control_group()
     print("current sampling static tests passed")

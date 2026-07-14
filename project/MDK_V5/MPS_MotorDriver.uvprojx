@@ -429,6 +429,11 @@
               <FilePath>..\..\application\motor_control\current_loop.c</FilePath>
             </File>
             <File>
+              <FileName>current_reconstruction.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\current_reconstruction.c</FilePath>
+            </File>
+            <File>
               <FileName>speed_loop.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\speed_loop.c</FilePath>
