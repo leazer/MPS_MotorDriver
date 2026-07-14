@@ -117,6 +117,16 @@ def parse_encoder_calibration_valid(text):
     return valid is not None and valid.group(1) == "1"
 
 
+def parse_current_offset_calibration(text):
+    result = re.search(
+        r"mc_cal result:\s*(PASS|FAIL)\s+offset_valid=([01])\b",
+        text,
+    )
+    if result is None:
+        return None
+    return result.group(1) == "PASS", result.group(2) == "1"
+
+
 def read_current_snapshot(ser):
     text = send_cmd(ser, "mc_debug", wait_after=0.6)
     snapshot = parse_current_snapshot(text)
@@ -152,7 +162,12 @@ def section_a(ser, log):
     fault_val = int(m_fault.group(1), 16) if m_fault else 0xFFFFFFFF
     # 致命掩码 0x9F (含 CURRENT_SAMPLE); CAL_INVALID(0x40) 可接受
     assert (fault_val & 0x9F) == 0, f"A: fatal fault active: {out.strip()}"
-    send_cmd(ser, "mc_cal", wait_after=2.0)
+    out_cal = send_cmd(ser, "mc_cal", wait_after=2.0)
+    calibration = parse_current_offset_calibration(out_cal)
+    assert calibration is not None, f"A: missing authoritative mc_cal result: {out_cal}"
+    calibration_ok, offset_valid = calibration
+    assert calibration_ok, f"A: current offset calibration failed: {out_cal}"
+    assert offset_valid, f"A: current offset calibration invalid: {out_cal}"
     out = send_cmd(ser, "mc_cur", wait_after=0.5)
     assert "usage" in out, f"A: mc_cur missing usage: {out}"
     log.append("[A] PASS: DISABLED, fault clear, mc_cal done, mc_cur exists")
@@ -189,24 +204,42 @@ def section_full_quadrant_current(ser, log):
             send_cmd(ser, "mc_stop", wait_after=0.3)
 
 
-def main():
-    port = sys.argv[1] if len(sys.argv) > 1 else PORT
-    ser = open_port(port)
+def main(argv=None):
+    args = sys.argv if argv is None else argv
+    port = args[1] if len(args) > 1 else PORT
+    ser = None
     log = []
+    status = 0
     try:
+        ser = open_port(port)
         section_a(ser, log)
         section_full_quadrant_current(ser, log)
         log.append("\n=== ALL PASS ===")
-    except AssertionError as e:
+    except Exception as e:
+        status = 1
         log.append(f"\n=== FAIL: {e} ===")
     finally:
-        send_cmd(ser, "mc_stop", wait_after=0.5)
-        ser.close()
+        if ser is not None:
+            try:
+                send_cmd(ser, "mc_stop", wait_after=0.5)
+            except Exception as e:
+                status = 1
+                log.append(f"cleanup mc_stop failed: {e}")
+            try:
+                ser.close()
+            except Exception as e:
+                status = 1
+                log.append(f"cleanup serial close failed: {e}")
     report = "\n".join(log)
     print(report)
-    with open("tests/stage5_bench_log.txt", "w", encoding="utf-8") as f:
-        f.write(report)
+    try:
+        with open("tests/stage5_bench_log.txt", "w", encoding="utf-8") as f:
+            f.write(report)
+    except Exception as e:
+        status = 1
+        print(f"report write failed: {e}")
+    return status
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

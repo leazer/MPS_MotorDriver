@@ -84,30 +84,42 @@ static volatile uint32_t s_dbg_ol_hits;
 static volatile uint32_t s_dbg_fault_hits;
 static volatile uint32_t s_dbg_disabled_hits;
 
-/* Stage 3: 电流/电压采样快照 */
-static volatile int32_t  s_dbg_ia_ma;       /* 三相电流 (毫安) */
-static volatile int32_t  s_dbg_ib_ma;
-static volatile int32_t  s_dbg_ic_ma;
+/* Stage 3: 电流/电压采样状态 */
 static volatile int32_t  s_dbg_vbus_mv;     /* 母线电压 (毫伏) */
-static volatile uint16_t s_dbg_ia_raw;      /* ADC 原始值 */
-static volatile uint16_t s_dbg_ib_raw;
-static volatile uint16_t s_dbg_ic_raw;
 static volatile uint32_t s_dbg_oc_hits;     /* 过流保护命中计数 */
 static volatile uint32_t s_dbg_imbal_hits;  /* 电流不平衡命中计数 */
 static current_sample_guard_t s_sample_guard;
 static volatile uint32_t s_dbg_pi_freeze_count;
-static volatile uint8_t s_dbg_sample_valid_mask;
-static volatile uint8_t s_dbg_reconstructed_phase;
-static volatile uint16_t s_dbg_margin_a;
-static volatile uint16_t s_dbg_margin_b;
-static volatile uint16_t s_dbg_margin_c;
-static volatile uint16_t s_dbg_sample_duty_a;
-static volatile uint16_t s_dbg_sample_duty_b;
-static volatile uint16_t s_dbg_sample_duty_c;
-static volatile uint16_t s_dbg_sample_tick;
-static volatile int32_t s_dbg_raw_ia_ma;
-static volatile int32_t s_dbg_raw_ib_ma;
-static volatile int32_t s_dbg_raw_ic_ma;
+
+typedef struct {
+    int32_t ia_ma;
+    int32_t ib_ma;
+    int32_t ic_ma;
+    uint16_t ia_raw;
+    uint16_t ib_raw;
+    uint16_t ic_raw;
+    uint32_t oc_hits;
+    uint32_t imbal_hits;
+    int32_t raw_ia_ma;
+    int32_t raw_ib_ma;
+    int32_t raw_ic_ma;
+    uint8_t sample_valid_mask;
+    uint8_t reconstructed_phase;
+    uint16_t sample_margin_a;
+    uint16_t sample_margin_b;
+    uint16_t sample_margin_c;
+    uint16_t sample_duty_a;
+    uint16_t sample_duty_b;
+    uint16_t sample_duty_c;
+    uint16_t sample_tick;
+    uint32_t sample_invalid_total;
+    uint16_t sample_invalid_consecutive;
+    uint16_t sample_overcurrent_consecutive;
+    uint32_t pi_freeze_count;
+} current_sampling_debug_snapshot_t;
+
+static volatile uint32_t s_sampling_debug_sequence;
+static volatile current_sampling_debug_snapshot_t s_sampling_debug_snapshot;
 static float s_held_vd_ref;
 static float s_held_vq_ref;
 static uint16_t          s_imbal_consec;    /* 连续不平衡计数 (防单拍 ADC 毛刺误触发) */
@@ -176,6 +188,41 @@ static void current_sampling_runtime_reset(void)
     s_imbal_consec = 0u;
 }
 
+static void current_sampling_debug_publish(const current_sampling_debug_snapshot_t *snapshot)
+{
+    uint32_t sequence;
+
+    sequence = s_sampling_debug_sequence;
+    s_sampling_debug_sequence = sequence + 1u;
+    __DMB();
+    s_sampling_debug_snapshot.ia_ma = snapshot->ia_ma;
+    s_sampling_debug_snapshot.ib_ma = snapshot->ib_ma;
+    s_sampling_debug_snapshot.ic_ma = snapshot->ic_ma;
+    s_sampling_debug_snapshot.ia_raw = snapshot->ia_raw;
+    s_sampling_debug_snapshot.ib_raw = snapshot->ib_raw;
+    s_sampling_debug_snapshot.ic_raw = snapshot->ic_raw;
+    s_sampling_debug_snapshot.oc_hits = snapshot->oc_hits;
+    s_sampling_debug_snapshot.imbal_hits = snapshot->imbal_hits;
+    s_sampling_debug_snapshot.raw_ia_ma = snapshot->raw_ia_ma;
+    s_sampling_debug_snapshot.raw_ib_ma = snapshot->raw_ib_ma;
+    s_sampling_debug_snapshot.raw_ic_ma = snapshot->raw_ic_ma;
+    s_sampling_debug_snapshot.sample_valid_mask = snapshot->sample_valid_mask;
+    s_sampling_debug_snapshot.reconstructed_phase = snapshot->reconstructed_phase;
+    s_sampling_debug_snapshot.sample_margin_a = snapshot->sample_margin_a;
+    s_sampling_debug_snapshot.sample_margin_b = snapshot->sample_margin_b;
+    s_sampling_debug_snapshot.sample_margin_c = snapshot->sample_margin_c;
+    s_sampling_debug_snapshot.sample_duty_a = snapshot->sample_duty_a;
+    s_sampling_debug_snapshot.sample_duty_b = snapshot->sample_duty_b;
+    s_sampling_debug_snapshot.sample_duty_c = snapshot->sample_duty_c;
+    s_sampling_debug_snapshot.sample_tick = snapshot->sample_tick;
+    s_sampling_debug_snapshot.sample_invalid_total = snapshot->sample_invalid_total;
+    s_sampling_debug_snapshot.sample_invalid_consecutive = snapshot->sample_invalid_consecutive;
+    s_sampling_debug_snapshot.sample_overcurrent_consecutive = snapshot->sample_overcurrent_consecutive;
+    s_sampling_debug_snapshot.pi_freeze_count = snapshot->pi_freeze_count;
+    __DMB();
+    s_sampling_debug_sequence = sequence + 2u;
+}
+
 void motor_control_isr_sampling_init(void)
 {
     current_sample_guard_init(&s_sample_guard);
@@ -217,15 +264,13 @@ void motor_control_isr_tick(void)
     current_reconstruction_result_t sample;
     current_sample_action_t sample_action;
     bool phase_overcurrent;
+    current_sampling_debug_snapshot_t sampling_debug;
 
     s_dbg_tick_count++;
     mc = motor_app_get_control_rw();
 
     /* ===== Stage 3: 读 ADC 注入序列 (硬件已由 TMR1_CH4 触发完成) ===== */
     current_sense_at32m412_read_raw(&ia_raw, &ib_raw, &ic_raw);
-    s_dbg_ia_raw = ia_raw;
-    s_dbg_ib_raw = ib_raw;
-    s_dbg_ic_raw = ic_raw;
 
     vbus = s_vbus_cached;
     s_dbg_vbus_mv = (int32_t)(vbus * VOLTS_TO_MV_F);
@@ -241,30 +286,11 @@ void motor_control_isr_tick(void)
     current_reconstruction_run(&plan, ia, ib, ic,
                                CURRENT_SAMPLE_BLANKING_TICKS, &sample);
 
-    s_dbg_raw_ia_ma = (int32_t)(sample.raw_ia * 1000.0f);
-    s_dbg_raw_ib_ma = (int32_t)(sample.raw_ib * 1000.0f);
-    s_dbg_raw_ic_ma = (int32_t)(sample.raw_ic * 1000.0f);
-    s_dbg_sample_valid_mask = sample.valid_mask;
-    s_dbg_reconstructed_phase = (uint8_t)sample.reconstructed_phase;
-    s_dbg_margin_a = sample.margin_a;
-    s_dbg_margin_b = sample.margin_b;
-    s_dbg_margin_c = sample.margin_c;
-    s_dbg_sample_duty_a = plan.duty_a;
-    s_dbg_sample_duty_b = plan.duty_b;
-    s_dbg_sample_duty_c = plan.duty_c;
-    s_dbg_sample_tick = plan.sample_tick;
-
-    if (sample.frame_valid) {
-        s_dbg_ia_ma = (int32_t)(sample.ia * 1000.0f);
-        s_dbg_ib_ma = (int32_t)(sample.ib * 1000.0f);
-        s_dbg_ic_ma = (int32_t)(sample.ic * 1000.0f);
-    }
-
     /* ===== Stage 3: 电流保护 (过流 + 不平衡, spec §4.3.5) ===== */
     phase_overcurrent = sample.frame_valid &&
-        (fabsf(sample.ia) > IQ_OVERCURRENT_A ||
-         fabsf(sample.ib) > IQ_OVERCURRENT_A ||
-         fabsf(sample.ic) > IQ_OVERCURRENT_A);
+        (fabsf(sample.ia) >= IQ_OVERCURRENT_A ||
+         fabsf(sample.ib) >= IQ_OVERCURRENT_A ||
+         fabsf(sample.ic) >= IQ_OVERCURRENT_A);
 
     if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
         sample_action = current_sample_guard_step(&s_sample_guard,
@@ -301,6 +327,38 @@ void motor_control_isr_tick(void)
     } else {
         s_imbal_consec = 0u;
     }
+
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED && !sample.frame_valid &&
+        ((mc->mode == MOTOR_CONTROL_MODE_CURRENT && s_cur_active) ||
+         (mc->mode == MOTOR_CONTROL_MODE_SPEED && s_spd_active))) {
+        s_dbg_pi_freeze_count++;
+    }
+
+    sampling_debug.ia_ma = (int32_t)(sample.ia * 1000.0f);
+    sampling_debug.ib_ma = (int32_t)(sample.ib * 1000.0f);
+    sampling_debug.ic_ma = (int32_t)(sample.ic * 1000.0f);
+    sampling_debug.ia_raw = ia_raw;
+    sampling_debug.ib_raw = ib_raw;
+    sampling_debug.ic_raw = ic_raw;
+    sampling_debug.oc_hits = s_dbg_oc_hits;
+    sampling_debug.imbal_hits = s_dbg_imbal_hits;
+    sampling_debug.raw_ia_ma = (int32_t)(sample.raw_ia * 1000.0f);
+    sampling_debug.raw_ib_ma = (int32_t)(sample.raw_ib * 1000.0f);
+    sampling_debug.raw_ic_ma = (int32_t)(sample.raw_ic * 1000.0f);
+    sampling_debug.sample_valid_mask = sample.valid_mask;
+    sampling_debug.reconstructed_phase = (uint8_t)sample.reconstructed_phase;
+    sampling_debug.sample_margin_a = sample.margin_a;
+    sampling_debug.sample_margin_b = sample.margin_b;
+    sampling_debug.sample_margin_c = sample.margin_c;
+    sampling_debug.sample_duty_a = plan.duty_a;
+    sampling_debug.sample_duty_b = plan.duty_b;
+    sampling_debug.sample_duty_c = plan.duty_c;
+    sampling_debug.sample_tick = plan.sample_tick;
+    sampling_debug.sample_invalid_total = s_sample_guard.invalid_total;
+    sampling_debug.sample_invalid_consecutive = s_sample_guard.invalid_consecutive;
+    sampling_debug.sample_overcurrent_consecutive = s_sample_guard.overcurrent_consecutive;
+    sampling_debug.pi_freeze_count = s_dbg_pi_freeze_count;
+    current_sampling_debug_publish(&sampling_debug);
 
     /* 故障态: 强制关 PWM 输出 + 50% 三相同电位, 不出力 (spec §3.3)
      * 仅致命故障触发关断; FAULT_CAL_INVALID 是告警, 不阻止 (spec §4.7.3) */
@@ -447,7 +505,6 @@ void motor_control_isr_tick(void)
             } else {
                 vd_ref = s_held_vd_ref;
                 vq_ref = s_held_vq_ref;
-                s_dbg_pi_freeze_count++;
             }
 
             /* IPark + SVPWM */
@@ -492,7 +549,6 @@ void motor_control_isr_tick(void)
             } else {
                 vd_ref = s_held_vd_ref;
                 vq_ref = s_held_vq_ref;
-                s_dbg_pi_freeze_count++;
             }
 
             foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
@@ -533,6 +589,10 @@ int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s)
     }
 
     mc = motor_app_get_control_rw();
+
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
 
     /* 致命故障未清不允许启动 (CAL_INVALID 告警不阻止, spec §4.7.3) */
     if (fault_manager_any_fatal()) {
@@ -614,6 +674,10 @@ int motor_control_isr_align_start(float vd_volts)
     }
 
     mc = motor_app_get_control_rw();
+
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
 
     /* 致命故障未清不允许启动 */
     if (fault_manager_any_fatal()) {
@@ -701,6 +765,11 @@ int motor_control_isr_current_start(float iq_ref_A)
         return -2;
     }
 
+    mc = motor_app_get_control_rw();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
+
     /* 致命故障未清不允许启动 */
     if (fault_manager_any_fatal()) {
         return -1;
@@ -726,7 +795,6 @@ int motor_control_isr_current_start(float iq_ref_A)
     current_sampling_runtime_reset();
 
     /* 切 CURRENT 模式 + 使能 (同 align_start 模式) */
-    mc = motor_app_get_control_rw();
     mc->mode = MOTOR_CONTROL_MODE_CURRENT;
     mc->state = MOTOR_CONTROL_STATE_ENABLED;
 
@@ -785,6 +853,11 @@ int motor_control_isr_speed_start(float target_rad_s)
     if (target_rad_s < -max_speed || target_rad_s > max_speed) {
         return -2;
     }
+
+    mc = motor_app_get_control_rw();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
     if (fault_manager_any_fatal()) {
         return -1;
     }
@@ -803,7 +876,6 @@ int motor_control_isr_speed_start(float target_rad_s)
     encoder_tracker_reset();
     current_sampling_runtime_reset();
 
-    mc = motor_app_get_control_rw();
     mc->mode = MOTOR_CONTROL_MODE_SPEED;
     mc->state = MOTOR_CONTROL_STATE_ENABLED;
 
@@ -840,9 +912,29 @@ bool motor_control_isr_speed_active(void)
 
 void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
 {
+    current_sampling_debug_snapshot_t sample_snapshot;
+    uint32_t sequence_begin;
+    uint32_t sequence_end;
+
     if (dbg == 0) {
         return;
     }
+
+    for (;;) {
+        sequence_begin = s_sampling_debug_sequence;
+        if ((sequence_begin & 1u) != 0u) {
+            continue;
+        }
+        __DMB();
+        sample_snapshot = s_sampling_debug_snapshot;
+        __DMB();
+        sequence_end = s_sampling_debug_sequence;
+        if ((sequence_begin != sequence_end) || ((sequence_end & 1u) != 0u)) {
+            continue;
+        }
+        break;
+    }
+
     dbg->theta_mrad     = s_dbg_theta_mrad;
     dbg->v_alpha_mv     = s_dbg_v_alpha_mv;
     dbg->v_beta_mv      = s_dbg_v_beta_mv;
@@ -853,30 +945,31 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->ol_branch_hits = s_dbg_ol_hits;
     dbg->fault_hits     = s_dbg_fault_hits;
     dbg->disabled_hits  = s_dbg_disabled_hits;
-    dbg->ia_ma          = s_dbg_ia_ma;
-    dbg->ib_ma          = s_dbg_ib_ma;
-    dbg->ic_ma          = s_dbg_ic_ma;
+    dbg->ia_ma          = sample_snapshot.ia_ma;
+    dbg->ib_ma          = sample_snapshot.ib_ma;
+    dbg->ic_ma          = sample_snapshot.ic_ma;
     dbg->vbus_mv        = s_dbg_vbus_mv;
-    dbg->ia_raw         = s_dbg_ia_raw;
-    dbg->ib_raw         = s_dbg_ib_raw;
-    dbg->ic_raw         = s_dbg_ic_raw;
-    dbg->oc_hits        = s_dbg_oc_hits;
-    dbg->imbal_hits     = s_dbg_imbal_hits;
-    dbg->raw_ia_ma      = s_dbg_raw_ia_ma;
-    dbg->raw_ib_ma      = s_dbg_raw_ib_ma;
-    dbg->raw_ic_ma      = s_dbg_raw_ic_ma;
-    dbg->sample_valid_mask = s_dbg_sample_valid_mask;
-    dbg->reconstructed_phase = s_dbg_reconstructed_phase;
-    dbg->sample_margin_a = s_dbg_margin_a;
-    dbg->sample_margin_b = s_dbg_margin_b;
-    dbg->sample_margin_c = s_dbg_margin_c;
-    dbg->sample_duty_a  = s_dbg_sample_duty_a;
-    dbg->sample_duty_b  = s_dbg_sample_duty_b;
-    dbg->sample_duty_c  = s_dbg_sample_duty_c;
-    dbg->sample_tick    = s_dbg_sample_tick;
-    dbg->sample_invalid_total = s_sample_guard.invalid_total;
-    dbg->sample_invalid_consecutive = s_sample_guard.invalid_consecutive;
-    dbg->pi_freeze_count = s_dbg_pi_freeze_count;
+    dbg->ia_raw         = sample_snapshot.ia_raw;
+    dbg->ib_raw         = sample_snapshot.ib_raw;
+    dbg->ic_raw         = sample_snapshot.ic_raw;
+    dbg->oc_hits        = sample_snapshot.oc_hits;
+    dbg->imbal_hits     = sample_snapshot.imbal_hits;
+    dbg->raw_ia_ma      = sample_snapshot.raw_ia_ma;
+    dbg->raw_ib_ma      = sample_snapshot.raw_ib_ma;
+    dbg->raw_ic_ma      = sample_snapshot.raw_ic_ma;
+    dbg->sample_valid_mask = sample_snapshot.sample_valid_mask;
+    dbg->reconstructed_phase = sample_snapshot.reconstructed_phase;
+    dbg->sample_margin_a = sample_snapshot.sample_margin_a;
+    dbg->sample_margin_b = sample_snapshot.sample_margin_b;
+    dbg->sample_margin_c = sample_snapshot.sample_margin_c;
+    dbg->sample_duty_a  = sample_snapshot.sample_duty_a;
+    dbg->sample_duty_b  = sample_snapshot.sample_duty_b;
+    dbg->sample_duty_c  = sample_snapshot.sample_duty_c;
+    dbg->sample_tick    = sample_snapshot.sample_tick;
+    dbg->sample_invalid_total = sample_snapshot.sample_invalid_total;
+    dbg->sample_invalid_consecutive = sample_snapshot.sample_invalid_consecutive;
+    dbg->sample_overcurrent_consecutive = sample_snapshot.sample_overcurrent_consecutive;
+    dbg->pi_freeze_count = sample_snapshot.pi_freeze_count;
     dbg->enc_raw        = s_dbg_enc_raw;
     dbg->enc_theta_mrad = s_dbg_enc_theta_mrad;
     dbg->enc_errors     = s_dbg_enc_errors;

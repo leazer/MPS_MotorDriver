@@ -34,6 +34,7 @@
  * 实测零偏 ~2070 (偏差 22 LSB). 50 LSB = 0.16A, 在安全范围内. */
 #define OFFSET_SAMPLE_COUNT     1024u
 #define OFFSET_VALID_WINDOW_LSB 50u    /* |offset - 2048| < 50 LSB */
+#define OFFSET_SEQUENCE_TIMEOUT 100000u /* > one 16kHz trigger interval at 180MHz */
 
 /* VBUS 普通转换软件触发等待超时 (ADC_CLK 30MHz, 转换 ~0.7us, 1000 次循环足够) */
 #define VBUS_CONV_TIMEOUT       1000u
@@ -153,27 +154,36 @@ bool current_sense_at32m412_calibrate_offset(void)
     uint32_t sum_b = 0;
     uint32_t sum_c = 0;
     uint16_t ia, ib, ic;
+    uint16_t candidate_a, candidate_b, candidate_c;
     uint32_t i;
+    uint32_t timeout;
     int32_t  diff_a, diff_b, diff_c;
 
     /* spec §4.3.3: PWM 50% 三相同电位时采 1024 次, 求平均.
-     * 调用方需已设 PWM 50% 并等待稳定. 注入序列由 TMR1_CH4 自动触发,
-     * 这里直接连续读 1024 次 (每次都是最新硬件转换结果). */
+     * 调用方需已设 PWM 50% 并等待稳定. 每个样本都先清完成标志，再等待
+     * 下一次 TMR1_CH4 触发的完整注入序列，确保 1024 个样本彼此独立. */
     for (i = 0; i < OFFSET_SAMPLE_COUNT; i++) {
+        adc_flag_clear(ADC2, ADC_PCCE_FLAG);
+        timeout = OFFSET_SEQUENCE_TIMEOUT;
+        while (adc_flag_get(ADC2, ADC_PCCE_FLAG) == RESET) {
+            if (--timeout == 0u) {
+                return false;
+            }
+        }
         current_sense_at32m412_read_raw(&ia, &ib, &ic);
         sum_a += ia;
         sum_b += ib;
         sum_c += ic;
     }
 
-    s_offset_a = (uint16_t)(sum_a / OFFSET_SAMPLE_COUNT);
-    s_offset_b = (uint16_t)(sum_b / OFFSET_SAMPLE_COUNT);
-    s_offset_c = (uint16_t)(sum_c / OFFSET_SAMPLE_COUNT);
+    candidate_a = (uint16_t)(sum_a / OFFSET_SAMPLE_COUNT);
+    candidate_b = (uint16_t)(sum_b / OFFSET_SAMPLE_COUNT);
+    candidate_c = (uint16_t)(sum_c / OFFSET_SAMPLE_COUNT);
 
     /* 校验: 零偏应在 2048±20 LSB 内 (spec §4.3.3), 否则硬件异常 */
-    diff_a = (int32_t)s_offset_a - (int32_t)CURRENT_ZERO_OFFSET_LSB;
-    diff_b = (int32_t)s_offset_b - (int32_t)CURRENT_ZERO_OFFSET_LSB;
-    diff_c = (int32_t)s_offset_c - (int32_t)CURRENT_ZERO_OFFSET_LSB;
+    diff_a = (int32_t)candidate_a - (int32_t)CURRENT_ZERO_OFFSET_LSB;
+    diff_b = (int32_t)candidate_b - (int32_t)CURRENT_ZERO_OFFSET_LSB;
+    diff_c = (int32_t)candidate_c - (int32_t)CURRENT_ZERO_OFFSET_LSB;
 
     if (diff_a < 0) diff_a = -diff_a;
     if (diff_b < 0) diff_b = -diff_b;
@@ -182,10 +192,12 @@ bool current_sense_at32m412_calibrate_offset(void)
     if ((uint32_t)diff_a > OFFSET_VALID_WINDOW_LSB ||
         (uint32_t)diff_b > OFFSET_VALID_WINDOW_LSB ||
         (uint32_t)diff_c > OFFSET_VALID_WINDOW_LSB) {
-        s_offset_valid = false;
         return false;
     }
 
+    s_offset_a = candidate_a;
+    s_offset_b = candidate_b;
+    s_offset_c = candidate_c;
     s_offset_valid = true;
     return true;
 }

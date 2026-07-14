@@ -27,7 +27,8 @@ void current_sense_at32m412_init(void);
 void current_sense_at32m412_read_raw(uint16_t *ia, uint16_t *ib, uint16_t *ic);
 
 /* 零偏标定: PWM 50% 时采 1024 次平均 (spec §4.3.3).
- * 返回 true 成功, false 失败 (零偏离 2048 超过 20LSB).
+ * 返回 true 成功, false 失败 (转换超时或零偏离 2048 超过窗口).
+ * 失败时保留此前的零偏和有效状态，不发布不完整的候选值.
  * 调用前需确保 PWM 已输出 50% 三相同电位且 MP6540H 已使能. */
 bool current_sense_at32m412_calibrate_offset(void);
 

@@ -95,6 +95,15 @@ def test_sample_plan_getter_reads_tracker_not_timer_registers():
     assert "tmr_channel_value" not in getter
 
 
+def test_repeated_irq_enable_does_not_rearm_sample_tracker():
+    body = function_body(read(PWM_C), "motor_pwm_at32m412_enable_ovf_irq")
+    assert "if (s_ovf_irq_enabled)" in body
+    guard = body.index("if (s_ovf_irq_enabled)")
+    early_return = body.index("return;", guard)
+    rearm = body.index("current_sample_tracker_rearm_from_next(&s_sample_tracker)")
+    assert guard < early_return < rearm
+
+
 def test_limits_and_fatal_sample_fault():
     params = read(PARAMS)
     fault = read(FAULT_H)
@@ -119,6 +128,36 @@ def test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames():
     assert "s_dbg_pi_freeze_count" in source
     assert "current_fault_latch(mc, FAULT_CURRENT_SAMPLE)" in source
     assert "sample.valid_mask == CURRENT_PHASE_ALL_MASK" in source
+
+
+def test_sampling_debug_snapshot_uses_complete_sequence_protocol():
+    source = read(ISR_C)
+    assert re.search(r"\bcurrent_sampling_debug_publish\s*\(", source)
+    publish = function_body(source, "current_sampling_debug_publish")
+    getter = function_body(source, "motor_control_isr_get_debug")
+    required_fields = (
+        "ia_ma", "ib_ma", "ic_ma", "ia_raw", "ib_raw", "ic_raw",
+        "oc_hits", "imbal_hits", "raw_ia_ma", "raw_ib_ma", "raw_ic_ma",
+        "sample_valid_mask", "reconstructed_phase", "sample_margin_a",
+        "sample_margin_b", "sample_margin_c", "sample_duty_a",
+        "sample_duty_b", "sample_duty_c", "sample_tick",
+        "sample_invalid_total", "sample_invalid_consecutive",
+        "sample_overcurrent_consecutive", "pi_freeze_count",
+    )
+
+    assert "s_sampling_debug_sequence = sequence + 1u" in publish
+    assert "s_sampling_debug_sequence = sequence + 2u" in publish
+    assert publish.count("__DMB()") >= 2
+    for field in required_fields:
+        assert f"s_sampling_debug_snapshot.{field}" in publish
+        assert f"sample_snapshot.{field}" in getter
+    assert "s_sample_guard.invalid_total" not in getter
+    assert "s_dbg_pi_freeze_count" not in getter
+    assert "s_sampling_debug_sequence" in getter
+    assert "for (;;)" in getter
+    assert "sequence_begin & 1u" in getter
+    assert "sequence_begin != sequence_end" in getter
+    assert getter.count("__DMB()") >= 2
 
 
 def test_raw_currents_cannot_bypass_reconstruction():
@@ -182,8 +221,10 @@ if __name__ == "__main__":
     test_thread_updates_are_deferred_to_the_update_handler()
     test_update_handler_latches_sample_before_control_and_publishes_requests_after()
     test_sample_plan_getter_reads_tracker_not_timer_registers()
+    test_repeated_irq_enable_does_not_rearm_sample_tracker()
     test_limits_and_fatal_sample_fault()
     test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames()
+    test_sampling_debug_snapshot_uses_complete_sequence_protocol()
     test_raw_currents_cannot_bypass_reconstruction()
     test_all_fatal_current_faults_use_state_latching_helper()
     test_shell_reports_sample_quality_and_fault_name()

@@ -268,6 +268,10 @@ void motor_pwm_at32m412_get_sample_plan(current_sample_plan_t *out)
 
 void motor_pwm_at32m412_enable_ovf_irq(void)
 {
+    if (s_ovf_irq_enabled) {
+        return;
+    }
+
     /* 使能 NVIC (优先级已在 board_nvic_init 设为 0=PRIO_FOC_ISR) + TMR1 OVF 中断使能 */
     current_sample_tracker_rearm_from_next(&s_sample_tracker);
     pwm_discard_pending_thread_updates();

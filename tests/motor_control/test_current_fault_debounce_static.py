@@ -14,6 +14,8 @@ def test_phase_overcurrent_uses_valid_frame_guard_and_short_debounce():
     assert "current_sample_guard_step" in source
     assert "sample.frame_valid" in source
     assert "current_fault_latch(mc, FAULT_OVERCURRENT)" in source
+    for phase in ("ia", "ib", "ic"):
+        assert re.search(rf"fabsf\(sample\.{phase}\)\s*>=\s*IQ_OVERCURRENT_A", source)
 
 
 if __name__ == "__main__":

@@ -37,7 +37,7 @@ void motor_control_isr_tick(void);
 /* 启动开环: 设置开环电压幅值与电角速度, 并切到 OPEN_LOOP + ENABLED.
  *   vd_volts        : d 轴目标电压 (V), 典型 0.5~3.0
  *   speed_rad_per_s : theta_e 递增角速度 (rad/s), 正=正转, 负=反转
- * 返回: 0=成功, -1=故障未清, -2=参数越界
+ * 返回: 0=成功, -1=故障未清, -2=参数越界, -3=已有模式运行中
  */
 int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s);
 
@@ -135,6 +135,7 @@ typedef struct {
     uint16_t sample_tick;
     uint32_t sample_invalid_total;
     uint16_t sample_invalid_consecutive;
+    uint16_t sample_overcurrent_consecutive;
     uint32_t pi_freeze_count;
     /* Stage 4: 编码器 + ALIGN + 标定快照 */
     uint16_t enc_raw;       /* 编码器原始角度 (16-bit) */

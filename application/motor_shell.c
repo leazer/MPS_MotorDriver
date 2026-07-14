@@ -437,6 +437,10 @@ static void mc_cal(int argc, char **argv)
     motor_pwm_at32m412_disable_output();   /* 标定完禁用 MP6540H */
 
     current_sense_at32m412_get_offset(&ofs_a, &ofs_b, &ofs_c);
+    rt_kprintf("mc_cal result: %s offset_valid=%d a=%u b=%u c=%u\n",
+               ok ? "PASS" : "FAIL",
+               current_sense_at32m412_offset_valid() ? 1 : 0,
+               ofs_a, ofs_b, ofs_c);
     if (ok) {
         rt_kprintf("offset OK: a=%u b=%u c=%u (deviation < %u LSB)\n",
                    ofs_a, ofs_b, ofs_c, 50u);
