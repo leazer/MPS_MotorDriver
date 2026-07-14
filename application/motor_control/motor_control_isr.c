@@ -183,6 +183,12 @@ void motor_control_isr_sampling_init(void)
     current_sampling_runtime_reset();
 }
 
+static void current_fault_latch(motor_control_t *mc, uint32_t fault)
+{
+    fault_manager_set(fault);
+    mc->state = MOTOR_CONTROL_STATE_FAULT;
+}
+
 void motor_control_isr_tick(void)
 {
     motor_control_t *mc;
@@ -268,11 +274,9 @@ void motor_control_isr_tick(void)
                                                   CURRENT_SAMPLE_INVALID_LIMIT);
         if (phase_overcurrent) s_dbg_oc_hits++;
         if (sample_action == CURRENT_SAMPLE_ACTION_TRIP_OVERCURRENT) {
-            fault_manager_set(FAULT_OVERCURRENT);
-            mc->state = MOTOR_CONTROL_STATE_FAULT;
+            current_fault_latch(mc, FAULT_OVERCURRENT);
         } else if (sample_action == CURRENT_SAMPLE_ACTION_TRIP_INVALID) {
-            fault_manager_set(FAULT_CURRENT_SAMPLE);
-            mc->state = MOTOR_CONTROL_STATE_FAULT;
+            current_fault_latch(mc, FAULT_CURRENT_SAMPLE);
         }
     } else {
         current_sample_guard_reset_consecutive(&s_sample_guard);
@@ -289,7 +293,7 @@ void motor_control_isr_tick(void)
             s_dbg_imbal_hits++;
             s_imbal_consec++;
             if (s_imbal_consec >= IMBALANCE_DEBOUNCE_TICKS) {
-                fault_manager_set(FAULT_OVERCURRENT);
+                current_fault_latch(mc, FAULT_OVERCURRENT);
             }
         } else {
             s_imbal_consec = 0u;

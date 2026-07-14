@@ -13,7 +13,7 @@ def test_phase_overcurrent_uses_valid_frame_guard_and_short_debounce():
     assert re.search(r"#define\s+OVERCURRENT_DEBOUNCE_TICKS\s+4u", params)
     assert "current_sample_guard_step" in source
     assert "sample.frame_valid" in source
-    assert "fault_manager_set(FAULT_OVERCURRENT)" in source
+    assert "current_fault_latch(mc, FAULT_OVERCURRENT)" in source
 
 
 if __name__ == "__main__":

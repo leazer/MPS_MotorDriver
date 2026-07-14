@@ -116,7 +116,7 @@ def test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames():
     assert "sample.frame_valid" in source
     assert "s_held_vd_ref" in source and "s_held_vq_ref" in source
     assert "s_dbg_pi_freeze_count" in source
-    assert "fault_manager_set(FAULT_CURRENT_SAMPLE)" in source
+    assert "current_fault_latch(mc, FAULT_CURRENT_SAMPLE)" in source
     assert "sample.valid_mask == CURRENT_PHASE_ALL_MASK" in source
 
 
@@ -126,14 +126,18 @@ def test_raw_currents_cannot_bypass_reconstruction():
     assert "foc_clarke(ia, ib, ic" not in source
 
 
-def test_guard_trips_latch_fault_state_before_fatal_branch():
+def test_all_fatal_current_faults_use_state_latching_helper():
     source = read(ISR_C)
+    assert "current_fault_latch" in source
+    helper = function_body(source, "current_fault_latch")
     tick = function_body(source, "motor_control_isr_tick")
     fatal_branch = tick.index("fault_manager_any_fatal()")
-    overcurrent_trip = tick.index("fault_manager_set(FAULT_OVERCURRENT)")
-    invalid_trip = tick.index("fault_manager_set(FAULT_CURRENT_SAMPLE)")
-    assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in tick[overcurrent_trip:invalid_trip]
-    assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in tick[invalid_trip:fatal_branch]
+    assert "fault_manager_set(fault)" in helper
+    assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in helper
+    assert tick[:fatal_branch].count("current_fault_latch(mc, FAULT_OVERCURRENT)") == 2
+    assert tick[:fatal_branch].count("current_fault_latch(mc, FAULT_CURRENT_SAMPLE)") == 1
+    assert "fault_manager_set(FAULT_OVERCURRENT)" not in tick
+    assert "fault_manager_set(FAULT_CURRENT_SAMPLE)" not in tick
 
 
 if __name__ == "__main__":
@@ -144,5 +148,5 @@ if __name__ == "__main__":
     test_limits_and_fatal_sample_fault()
     test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames()
     test_raw_currents_cannot_bypass_reconstruction()
-    test_guard_trips_latch_fault_state_before_fatal_branch()
+    test_all_fatal_current_faults_use_state_latching_helper()
     print("current sampling static tests passed")
