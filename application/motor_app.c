@@ -4,6 +4,7 @@
 #include "fault_manager.h"
 #include "motor_calibration.h"
 #include "current_loop.h"
+#include "motor_control_isr.h"
 #include "speed_loop.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
@@ -47,6 +48,7 @@ void motor_app_init(void)
     motor_control_init(&s_motor_control);  /* 已有状态机 */
     motor_calibration_load();              /* 开机加载标定 (Stage 4b) */
     current_loop_init();                   /* Stage 5: 电流环 PID 参数初始化 */
+    motor_control_isr_sampling_init();     /* 电流重构保护与诊断初始化 */
     speed_loop_init();                     /* Stage 6: 速度环 PI 参数初始化 */
     encoder_acq_timer_at32m412_init();     /* 4kHz 低优先级编码器采集 */
 }

@@ -93,6 +93,9 @@ int  motor_control_isr_speed_start(float target_rad_s);
 void motor_control_isr_speed_stop(void);
 bool motor_control_isr_speed_active(void);
 
+/* Initialize boot-lifetime current-sampling diagnostics and transient guard state. */
+void motor_control_isr_sampling_init(void);
+
 /* 获取最近一次 ISR 内部状态 (供 msh 观察, 非强一致, 仅调试用)
  * 注意: 所有浮点字段改用定点 (毫伏/毫弧度/毫度) 表示, 因 RT-Thread
  * Nano rt_kprintf 不支持 %f, shell 打印需用整数.
@@ -118,6 +121,21 @@ typedef struct {
     uint16_t ic_raw;
     uint32_t oc_hits;       /* 过流保护命中计数 */
     uint32_t imbal_hits;    /* 电流不平衡命中计数 */
+    int32_t raw_ia_ma;
+    int32_t raw_ib_ma;
+    int32_t raw_ic_ma;
+    uint8_t sample_valid_mask;
+    uint8_t reconstructed_phase;
+    uint16_t sample_margin_a;
+    uint16_t sample_margin_b;
+    uint16_t sample_margin_c;
+    uint16_t sample_duty_a;
+    uint16_t sample_duty_b;
+    uint16_t sample_duty_c;
+    uint16_t sample_tick;
+    uint32_t sample_invalid_total;
+    uint16_t sample_invalid_consecutive;
+    uint32_t pi_freeze_count;
     /* Stage 4: 编码器 + ALIGN + 标定快照 */
     uint16_t enc_raw;       /* 编码器原始角度 (16-bit) */
     int32_t  enc_theta_mrad;/* 编码器电角度 (毫弧度) */

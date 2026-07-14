@@ -14,7 +14,7 @@
 #define SPEED_DT_S                  (ISR_DT_S * (float)SPEED_LOOP_DIV)
 #define PID_SPEED_KP                0.01f
 #define PID_SPEED_KI                0.5f
-#define IQ_MAX_A                    4.5f
+#define IQ_MAX_A                    1.5f
 #define PID_SPEED_INTEGRAL_LIMIT    IQ_MAX_A
 #define PID_SPEED_OUT_LIMIT         IQ_MAX_A
 #define SPEED_RAMP_RAD_S2           600.0f

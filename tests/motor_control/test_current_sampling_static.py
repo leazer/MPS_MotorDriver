@@ -94,9 +94,55 @@ def test_sample_plan_getter_reads_tracker_not_timer_registers():
     assert "tmr_channel_value" not in getter
 
 
+def test_limits_and_fatal_sample_fault():
+    params = read(PARAMS)
+    fault = read(FAULT_H)
+    assert re.search(r"#define\s+CURRENT_SAMPLE_BLANKING_TICKS\s+180u", params)
+    assert re.search(r"#define\s+CURRENT_SAMPLE_INVALID_LIMIT\s+8u", params)
+    assert re.search(r"#define\s+IQ_OVERCURRENT_A\s+2\.0f", params)
+    assert re.search(r"#define\s+IQ_MAX_A\s+1\.5f", params)
+    assert re.search(r"#define\s+IQ_MAX_MA\s+1500\b", params)
+    assert "FAULT_CURRENT_SAMPLE" in fault
+    fatal = re.search(r"#define\s+FAULT_FATAL_MASK[\s\S]*?\n\n", fault).group(0)
+    assert "FAULT_CURRENT_SAMPLE" in fatal
+
+
+def test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames():
+    source = read(ISR_C)
+    assert "motor_pwm_at32m412_get_sample_plan" in source
+    assert "current_reconstruction_run" in source
+    assert "current_sample_guard_step" in source
+    assert source.index("current_reconstruction_run") < source.index("foc_clarke(")
+    assert "sample.frame_valid" in source
+    assert "s_held_vd_ref" in source and "s_held_vq_ref" in source
+    assert "s_dbg_pi_freeze_count" in source
+    assert "fault_manager_set(FAULT_CURRENT_SAMPLE)" in source
+    assert "sample.valid_mask == CURRENT_PHASE_ALL_MASK" in source
+
+
+def test_raw_currents_cannot_bypass_reconstruction():
+    source = read(ISR_C)
+    assert "foc_clarke(sample.ia, sample.ib, sample.ic" in source
+    assert "foc_clarke(ia, ib, ic" not in source
+
+
+def test_guard_trips_latch_fault_state_before_fatal_branch():
+    source = read(ISR_C)
+    tick = function_body(source, "motor_control_isr_tick")
+    fatal_branch = tick.index("fault_manager_any_fatal()")
+    overcurrent_trip = tick.index("fault_manager_set(FAULT_OVERCURRENT)")
+    invalid_trip = tick.index("fault_manager_set(FAULT_CURRENT_SAMPLE)")
+    assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in tick[overcurrent_trip:invalid_trip]
+    assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in tick[invalid_trip:fatal_branch]
+
+
 if __name__ == "__main__":
     test_pwm_stages_hardware_and_tracker_from_identical_values()
     test_thread_updates_are_deferred_to_the_update_handler()
     test_update_handler_latches_sample_before_control_and_publishes_requests_after()
     test_sample_plan_getter_reads_tracker_not_timer_registers()
+    test_limits_and_fatal_sample_fault()
+    test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames()
+    test_raw_currents_cannot_bypass_reconstruction()
+    test_guard_trips_latch_fault_state_before_fatal_branch()
     print("current sampling static tests passed")

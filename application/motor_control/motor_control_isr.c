@@ -24,6 +24,7 @@
 #include "board_motor_pins.h"
 #include "current_loop.h"
 #include "speed_loop.h"
+#include "current_reconstruction.h"
 #include <math.h>
 
 #define ISR_DT_S            (1.0f / (float)PWM_FREQUENCY_HZ)   /* 62.5 µs */
@@ -93,7 +94,22 @@ static volatile uint16_t s_dbg_ib_raw;
 static volatile uint16_t s_dbg_ic_raw;
 static volatile uint32_t s_dbg_oc_hits;     /* 过流保护命中计数 */
 static volatile uint32_t s_dbg_imbal_hits;  /* 电流不平衡命中计数 */
-static uint16_t          s_oc_consec;       /* 连续相过流计数 (防单拍 ADC 毛刺误触发) */
+static current_sample_guard_t s_sample_guard;
+static volatile uint32_t s_dbg_pi_freeze_count;
+static volatile uint8_t s_dbg_sample_valid_mask;
+static volatile uint8_t s_dbg_reconstructed_phase;
+static volatile uint16_t s_dbg_margin_a;
+static volatile uint16_t s_dbg_margin_b;
+static volatile uint16_t s_dbg_margin_c;
+static volatile uint16_t s_dbg_sample_duty_a;
+static volatile uint16_t s_dbg_sample_duty_b;
+static volatile uint16_t s_dbg_sample_duty_c;
+static volatile uint16_t s_dbg_sample_tick;
+static volatile int32_t s_dbg_raw_ia_ma;
+static volatile int32_t s_dbg_raw_ib_ma;
+static volatile int32_t s_dbg_raw_ic_ma;
+static float s_held_vd_ref;
+static float s_held_vq_ref;
 static uint16_t          s_imbal_consec;    /* 连续不平衡计数 (防单拍 ADC 毛刺误触发) */
 
 /* Stage 4: 编码器 + ALIGN + 标定快照 */
@@ -152,6 +168,21 @@ static void current_debug_accumulate_average(int32_t id_ma, int32_t iq_ma)
     }
 }
 
+static void current_sampling_runtime_reset(void)
+{
+    current_sample_guard_reset_consecutive(&s_sample_guard);
+    s_held_vd_ref = 0.0f;
+    s_held_vq_ref = 0.0f;
+    s_imbal_consec = 0u;
+}
+
+void motor_control_isr_sampling_init(void)
+{
+    current_sample_guard_init(&s_sample_guard);
+    s_dbg_pi_freeze_count = 0u;
+    current_sampling_runtime_reset();
+}
+
 void motor_control_isr_tick(void)
 {
     motor_control_t *mc;
@@ -176,6 +207,10 @@ void motor_control_isr_tick(void)
     float    ic;
     float    i_sum;
     float    gain;
+    current_sample_plan_t plan;
+    current_reconstruction_result_t sample;
+    current_sample_action_t sample_action;
+    bool phase_overcurrent;
 
     s_dbg_tick_count++;
     mc = motor_app_get_control_rw();
@@ -195,32 +230,69 @@ void motor_control_isr_tick(void)
     ia = current_sense_calc(ia_raw, (float)ofs_a, gain);
     ib = current_sense_calc(ib_raw, (float)ofs_b, gain);
     ic = current_sense_calc(ic_raw, (float)ofs_c, gain);
-    s_dbg_ia_ma = (int32_t)(ia * 1000.0f);
-    s_dbg_ib_ma = (int32_t)(ib * 1000.0f);
-    s_dbg_ic_ma = (int32_t)(ic * 1000.0f);
+
+    motor_pwm_at32m412_get_sample_plan(&plan);
+    current_reconstruction_run(&plan, ia, ib, ic,
+                               CURRENT_SAMPLE_BLANKING_TICKS, &sample);
+
+    s_dbg_raw_ia_ma = (int32_t)(sample.raw_ia * 1000.0f);
+    s_dbg_raw_ib_ma = (int32_t)(sample.raw_ib * 1000.0f);
+    s_dbg_raw_ic_ma = (int32_t)(sample.raw_ic * 1000.0f);
+    s_dbg_sample_valid_mask = sample.valid_mask;
+    s_dbg_reconstructed_phase = (uint8_t)sample.reconstructed_phase;
+    s_dbg_margin_a = sample.margin_a;
+    s_dbg_margin_b = sample.margin_b;
+    s_dbg_margin_c = sample.margin_c;
+    s_dbg_sample_duty_a = plan.duty_a;
+    s_dbg_sample_duty_b = plan.duty_b;
+    s_dbg_sample_duty_c = plan.duty_c;
+    s_dbg_sample_tick = plan.sample_tick;
+
+    if (sample.frame_valid) {
+        s_dbg_ia_ma = (int32_t)(sample.ia * 1000.0f);
+        s_dbg_ib_ma = (int32_t)(sample.ib * 1000.0f);
+        s_dbg_ic_ma = (int32_t)(sample.ic * 1000.0f);
+    }
 
     /* ===== Stage 3: 电流保护 (过流 + 不平衡, spec §4.3.5) ===== */
-    /* 过流: 任一相电流绝对值超阈值 */
-    if (fabsf(ia) > IQ_OVERCURRENT_A ||
-        fabsf(ib) > IQ_OVERCURRENT_A ||
-        fabsf(ic) > IQ_OVERCURRENT_A) {
-        s_dbg_oc_hits++;
-        s_oc_consec++;
-        if (s_oc_consec >= OVERCURRENT_DEBOUNCE_TICKS) {
+    phase_overcurrent = sample.frame_valid &&
+        (fabsf(sample.ia) > IQ_OVERCURRENT_A ||
+         fabsf(sample.ib) > IQ_OVERCURRENT_A ||
+         fabsf(sample.ic) > IQ_OVERCURRENT_A);
+
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        sample_action = current_sample_guard_step(&s_sample_guard,
+                                                  sample.frame_valid,
+                                                  phase_overcurrent,
+                                                  OVERCURRENT_DEBOUNCE_TICKS,
+                                                  CURRENT_SAMPLE_INVALID_LIMIT);
+        if (phase_overcurrent) s_dbg_oc_hits++;
+        if (sample_action == CURRENT_SAMPLE_ACTION_TRIP_OVERCURRENT) {
             fault_manager_set(FAULT_OVERCURRENT);
+            mc->state = MOTOR_CONTROL_STATE_FAULT;
+        } else if (sample_action == CURRENT_SAMPLE_ACTION_TRIP_INVALID) {
+            fault_manager_set(FAULT_CURRENT_SAMPLE);
+            mc->state = MOTOR_CONTROL_STATE_FAULT;
         }
     } else {
-        s_oc_consec = 0u;
+        current_sample_guard_reset_consecutive(&s_sample_guard);
+        sample_action = CURRENT_SAMPLE_ACTION_USE;
     }
+
     /* 不平衡: ia+ib+ic 应接近 0 (基尔霍夫), 超阈值视为故障.
      * 防毛刺: 连续 IMBALANCE_DEBOUNCE_TICKS 才锁存故障 (Stage 5 调试发现
      * 电流环启动瞬态 PWM 切换时单拍 ADC 毛刺可致 i_sum 瞬超阈值). */
-    i_sum = ia + ib + ic;
-    if (fabsf(i_sum) > IMBALANCE_THRESHOLD_A) {
-        s_dbg_imbal_hits++;
-        s_imbal_consec++;
-        if (s_imbal_consec >= IMBALANCE_DEBOUNCE_TICKS) {
-            fault_manager_set(FAULT_OVERCURRENT);
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED &&
+        sample.valid_mask == CURRENT_PHASE_ALL_MASK) {
+        i_sum = sample.raw_ia + sample.raw_ib + sample.raw_ic;
+        if (fabsf(i_sum) > IMBALANCE_THRESHOLD_A) {
+            s_dbg_imbal_hits++;
+            s_imbal_consec++;
+            if (s_imbal_consec >= IMBALANCE_DEBOUNCE_TICKS) {
+                fault_manager_set(FAULT_OVERCURRENT);
+            }
+        } else {
+            s_imbal_consec = 0u;
         }
     } else {
         s_imbal_consec = 0u;
@@ -356,15 +428,23 @@ void motor_control_isr_tick(void)
             }
             s_dbg_theta_mrad = (int32_t)(theta * RAD_TO_MRAD_F);
 
-            /* Clarke + Park: ia/ib/ic -> id/iq */
-            foc_clarke(ia, ib, ic, &i_alpha, &i_beta);
-            foc_park(i_alpha, i_beta, theta, &id, &iq);
-            s_dbg_id_ma = (int32_t)(id * 1000.0f);
-            s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
-            current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
+            if (sample.frame_valid) {
+                /* Clarke + Park: reconstructed ia/ib/ic -> id/iq */
+                foc_clarke(sample.ia, sample.ib, sample.ic, &i_alpha, &i_beta);
+                foc_park(i_alpha, i_beta, theta, &id, &iq);
+                s_dbg_id_ma = (int32_t)(id * 1000.0f);
+                s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+                current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
 
-            /* 电流环 PI (Id 目标 0, Iq 目标 = current_loop_set_targets 设定值) */
-            current_loop_run(id, iq, &vd_ref, &vq_ref);
+                /* 电流环 PI (Id 目标 0, Iq 目标 = current_loop_set_targets 设定值) */
+                current_loop_run(id, iq, &vd_ref, &vq_ref);
+                s_held_vd_ref = vd_ref;
+                s_held_vq_ref = vq_ref;
+            } else {
+                vd_ref = s_held_vd_ref;
+                vq_ref = s_held_vq_ref;
+                s_dbg_pi_freeze_count++;
+            }
 
             /* IPark + SVPWM */
             foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
@@ -392,16 +472,24 @@ void motor_control_isr_tick(void)
             theta = s_enc_theta_e;
             s_dbg_theta_mrad = (int32_t)(theta * RAD_TO_MRAD_F);
 
-            iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s());
-            current_loop_set_targets(0.0f, iq_ref);
+            if (sample.frame_valid) {
+                iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s());
+                current_loop_set_targets(0.0f, iq_ref);
 
-            foc_clarke(ia, ib, ic, &i_alpha, &i_beta);
-            foc_park(i_alpha, i_beta, theta, &id, &iq);
-            s_dbg_id_ma = (int32_t)(id * 1000.0f);
-            s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
-            current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
+                foc_clarke(sample.ia, sample.ib, sample.ic, &i_alpha, &i_beta);
+                foc_park(i_alpha, i_beta, theta, &id, &iq);
+                s_dbg_id_ma = (int32_t)(id * 1000.0f);
+                s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+                current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
 
-            current_loop_run(id, iq, &vd_ref, &vq_ref);
+                current_loop_run(id, iq, &vd_ref, &vq_ref);
+                s_held_vd_ref = vd_ref;
+                s_held_vq_ref = vq_ref;
+            } else {
+                vd_ref = s_held_vd_ref;
+                vq_ref = s_held_vq_ref;
+                s_dbg_pi_freeze_count++;
+            }
 
             foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
             s_dbg_v_alpha_mv = (int32_t)(v_alpha * VOLTS_TO_MV_F);
@@ -456,6 +544,7 @@ int motor_control_isr_open_loop_start(float vd_volts, float speed_rad_per_s)
     s_cur_active     = false;   /* 互斥: 清 CURRENT (Stage 5, 根因1对称清理) */
     s_spd_active     = false;   /* 互斥: 清 SPEED */
     encoder_tracker_reset();
+    current_sampling_runtime_reset();
 
     /* 切模式 + 使能 */
     mc->mode  = MOTOR_CONTROL_MODE_OPEN_LOOP;
@@ -487,6 +576,7 @@ void motor_control_isr_open_loop_stop(void)
 
     /* 先停 ISR, 再改输出 (避免竞态) */
     motor_pwm_at32m412_disable_ovf_irq();
+    current_sampling_runtime_reset();
 
     /* 立即输出 50% 三相同电位 */
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
@@ -535,6 +625,7 @@ int motor_control_isr_align_start(float vd_volts)
     s_ol_active = false;   /* 互斥: 启动 ALIGN 前清 open_loop */
     s_cur_active = false;  /* 互斥: 清 CURRENT (Stage 5, 根因1对称清理) */
     s_spd_active = false;  /* 互斥: 清 SPEED */
+    current_sampling_runtime_reset();
 
     /* 切 ALIGN 模式 + 使能 */
     mc->mode = MOTOR_CONTROL_MODE_ALIGN;
@@ -562,6 +653,7 @@ void motor_control_isr_align_stop(void)
     encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
+    current_sampling_runtime_reset();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
     motor_pwm_at32m412_disable_output();
 
@@ -627,6 +719,7 @@ int motor_control_isr_current_start(float iq_ref_A)
     s_cur_theta_e = 0.0f;
     s_cur_active = true;
     encoder_tracker_reset();
+    current_sampling_runtime_reset();
 
     /* 切 CURRENT 模式 + 使能 (同 align_start 模式) */
     mc = motor_app_get_control_rw();
@@ -651,6 +744,7 @@ void motor_control_isr_current_stop(void)
     encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
+    current_sampling_runtime_reset();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
     motor_pwm_at32m412_disable_output();
 
@@ -703,6 +797,7 @@ int motor_control_isr_speed_start(float target_rad_s)
     current_debug_reset_average();
     s_spd_active = true;
     encoder_tracker_reset();
+    current_sampling_runtime_reset();
 
     mc = motor_app_get_control_rw();
     mc->mode = MOTOR_CONTROL_MODE_SPEED;
@@ -726,6 +821,7 @@ void motor_control_isr_speed_stop(void)
     encoder_tracker_reset();
 
     motor_pwm_at32m412_disable_ovf_irq();
+    current_sampling_runtime_reset();
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
     motor_pwm_at32m412_disable_output();
 
@@ -762,6 +858,21 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->ic_raw         = s_dbg_ic_raw;
     dbg->oc_hits        = s_dbg_oc_hits;
     dbg->imbal_hits     = s_dbg_imbal_hits;
+    dbg->raw_ia_ma      = s_dbg_raw_ia_ma;
+    dbg->raw_ib_ma      = s_dbg_raw_ib_ma;
+    dbg->raw_ic_ma      = s_dbg_raw_ic_ma;
+    dbg->sample_valid_mask = s_dbg_sample_valid_mask;
+    dbg->reconstructed_phase = s_dbg_reconstructed_phase;
+    dbg->sample_margin_a = s_dbg_margin_a;
+    dbg->sample_margin_b = s_dbg_margin_b;
+    dbg->sample_margin_c = s_dbg_margin_c;
+    dbg->sample_duty_a  = s_dbg_sample_duty_a;
+    dbg->sample_duty_b  = s_dbg_sample_duty_b;
+    dbg->sample_duty_c  = s_dbg_sample_duty_c;
+    dbg->sample_tick    = s_dbg_sample_tick;
+    dbg->sample_invalid_total = s_sample_guard.invalid_total;
+    dbg->sample_invalid_consecutive = s_sample_guard.invalid_consecutive;
+    dbg->pi_freeze_count = s_dbg_pi_freeze_count;
     dbg->enc_raw        = s_dbg_enc_raw;
     dbg->enc_theta_mrad = s_dbg_enc_theta_mrad;
     dbg->enc_errors     = s_dbg_enc_errors;
