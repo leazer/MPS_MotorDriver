@@ -126,6 +126,41 @@ static void mc_state(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_state, show motor control state/mode/fault);
 
+static bool motor_shell_reject_if_running(void)
+{
+    const motor_control_t *mc;
+
+    mc = motor_app_get_control();
+    if (motor_control_get_state(mc) == MOTOR_CONTROL_STATE_ENABLED) {
+        rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
+        return true;
+    }
+    return false;
+}
+
+static bool motor_shell_reject_calibration_if_active(void)
+{
+    const motor_control_t *mc;
+    uint16_t ofs_a;
+    uint16_t ofs_b;
+    uint16_t ofs_c;
+
+    mc = motor_app_get_control();
+    if (motor_control_get_state(mc) == MOTOR_CONTROL_STATE_DISABLED &&
+        !motor_control_isr_open_loop_active() &&
+        !motor_control_isr_align_active() &&
+        !motor_control_isr_current_active() &&
+        !motor_control_isr_speed_active()) {
+        return false;
+    }
+
+    current_sense_at32m412_get_offset(&ofs_a, &ofs_b, &ofs_c);
+    rt_kprintf("mc_cal result: FAIL offset_valid=0 a=%u b=%u c=%u\n",
+               ofs_a, ofs_b, ofs_c);
+    rt_kprintf("FAIL: mc_cal requires a disabled/stopped motor. Run 'mc_stop' first.\n");
+    return true;
+}
+
 /* ---- mc_open <vd_mv> <speed_rpm_elec> [enc|ramp]: 启动开环旋转 (Stage 2/4) ----
  * vd_mv          : d 轴目标电压 (毫伏), 典型 500..3000, 上限 18000
  * speed_rpm_elec : 电角度转速 (rpm), 正=正转 负=反转
@@ -165,6 +200,9 @@ static void mc_open(int argc, char **argv)
             return;
         }
     }
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
     motor_control_isr_open_loop_set_encoder_angle(use_enc);
 
     ret = motor_control_isr_open_loop_start(vd_volts, rad_per_s);
@@ -174,6 +212,8 @@ static void mc_open(int argc, char **argv)
         rt_kprintf("MP6540H EN=HIGH, TMR1_OVF IRQ enabled (16kHz ISR)\n");
     } else if (ret == -1) {
         rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else if (ret == -3) {
+        rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
     } else {
         rt_kprintf("FAIL: param out of range. vd=[0..18000] mV, speed=[-600..600] rpm_elec\n");
     }
@@ -304,6 +344,7 @@ static void mc_cur(int argc, char **argv)
     float iq_A;
     bool use_enc = true;
     long speed_rpm = 0;
+    int ret;
 
     if (argc < 2) {
         rt_kprintf("usage: mc_cur <iq_ma> [enc|ramp] [speed_rpm_elec]\n");
@@ -339,6 +380,9 @@ static void mc_cur(int argc, char **argv)
         rt_kprintf("FAIL: cal invalid, run enc_cal_start auto or use ramp mode\n");
         return;
     }
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
 
     /* 设 theta 来源 + 速度 (须在 start 前设, current_start 不重置以免覆盖) */
     motor_control_isr_current_set_encoder_angle(use_enc);
@@ -348,7 +392,12 @@ static void mc_cur(int argc, char **argv)
     }
 
     /* 启动 */
-    if (motor_control_isr_current_start(iq_A) != 0) {
+    ret = motor_control_isr_current_start(iq_A);
+    if (ret == -3) {
+        rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
+        return;
+    }
+    if (ret != 0) {
         rt_kprintf("FAIL: current start failed (fault or iq out of range)\n");
         return;
     }
@@ -394,6 +443,8 @@ static void mc_speed(int argc, char **argv)
                    (long)rpm_elec, (long)(rad_per_s * 1000.0f));
     } else if (ret == -1) {
         rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else if (ret == -3) {
+        rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
     } else {
         rt_kprintf("FAIL: speed out of range +-%d rpm_elec\n", RPM_MAX);
     }
@@ -410,6 +461,10 @@ static void mc_cal(int argc, char **argv)
     bool ok;
     uint16_t ofs_a, ofs_b, ofs_c;
     (void)argc; (void)argv;
+
+    if (motor_shell_reject_calibration_if_active()) {
+        return;
+    }
 
     /* 标定前确保 PWM 50% 三相同电位 (无电流) */
     motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
@@ -559,6 +614,8 @@ static void mc_align(int argc, char **argv)
         rt_kprintf("Stop with 'mc_stop'.\n");
     } else if (ret == -1) {
         rt_kprintf("FAIL: fault not cleared. Run 'fault_clear' first.\n");
+    } else if (ret == -3) {
+        rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
     } else {
         rt_kprintf("FAIL: vd out of range [0..18000] mV\n");
     }

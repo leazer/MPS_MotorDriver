@@ -659,6 +659,12 @@ bool motor_control_isr_open_loop_active(void)
 
 void motor_control_isr_open_loop_set_encoder_angle(bool use_enc)
 {
+    const motor_control_t *mc;
+
+    mc = motor_app_get_control();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return;
+    }
     s_ol_use_enc = use_enc;
 }
 
@@ -831,11 +837,24 @@ bool motor_control_isr_current_active(void)
 
 void motor_control_isr_current_set_encoder_angle(bool use_enc)
 {
+    const motor_control_t *mc;
+
+    mc = motor_app_get_control();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return;
+    }
     s_cur_use_enc = use_enc;
 }
 
 void motor_control_isr_current_set_speed(float rad_per_s)
 {
+    const motor_control_t *mc;
+
+    mc = motor_app_get_control();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return;
+    }
+
     /* 限幅: 复用 OPEN_LOOP_SPEED_MAX 安全上界 (ramp 调试用, 同 open_loop) */
     if (rad_per_s < -OPEN_LOOP_SPEED_MAX) rad_per_s = -OPEN_LOOP_SPEED_MAX;
     if (rad_per_s >  OPEN_LOOP_SPEED_MAX) rad_per_s =  OPEN_LOOP_SPEED_MAX;
