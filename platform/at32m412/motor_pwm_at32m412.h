@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include "current_reconstruction.h"
 
 /* TMR1 完整初始化: 中心对齐 16kHz 3 路 PWM + CH4(ADC 触发)
  * spec §1.3: TWO_WAY_3, RCR=1, ARR=5624 (180MHz), prescaler=1
@@ -25,6 +26,9 @@ void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint1
 
 /* 设置 TMR1_CH4 ADC 注入触发比较点 (调试采样窗口用, 0..ARR) */
 void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks);
+
+/* 获取与最新 ADC 注入结果对应的 PWM 占空比及采样点 */
+void motor_pwm_at32m412_get_sample_plan(current_sample_plan_t *out);
 
 /* 使能 TMR1_OVF 中断 (16kHz, FOC ISR 触发). NVIC 优先级已在 board_nvic_init 设置.
  * Stage 2: motor_control_isr_open_loop_start 调用, 之后 ISR 每周期执行一次. */

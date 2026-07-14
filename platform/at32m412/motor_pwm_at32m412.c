@@ -4,7 +4,9 @@
 #include "motor_control_isr.h"
 
 /* 内部: 限幅单通道占空比 */
-#define PWM_ADC_TRIGGER_TICKS 2500u
+#define PWM_ADC_TRIGGER_TICKS (TMR1_ARR - 360u)
+
+static current_sample_tracker_t s_sample_tracker;
 
 static uint16_t pwm_clamp_duty(uint16_t duty)
 {
@@ -73,15 +75,16 @@ void motor_pwm_at32m412_init(void)
     tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, TMR1_ARR / 2u);
 
     /* --- 4. CH4: 输出比较模式, 触发 ADC 注入序列 ---
-     * MP6540H 电流镜采样窗口需避开谷底零矢量. V2 台架扫点确认:
-     * CH4=1..2000 时 ALIGN/电流环反馈接近零; CH4=2500 时低电流
-     * enc 闭环 iq_avg 可跟随 50/100/200mA, 因此默认使用 2500 ticks.
+     * MP6540H 电流镜采样窗口需避开开关沿，默认在 ARR 前 360 ticks 采样.
      * 必须调用 tmr_output_channel_config 配置 CH4 为输出比较, 否则不产生
      * 比较事件, ADC 注入序列无法被 TMR1_CH4 触发 (spec §3.2).
      * 参考工程 mc_hwio.c: tmr_output_channel_config(ADC_TIMER, CH4, ...) */
     tmr_output_channel_config(TMR1, TMR_SELECT_CHANNEL_4, &tmr_output_struct);
     tmr_output_channel_buffer_enable(TMR1, TMR_SELECT_CHANNEL_4, TRUE);
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, PWM_ADC_TRIGGER_TICKS);
+    current_sample_tracker_init(&s_sample_tracker,
+                                TMR1_ARR / 2u,
+                                PWM_ADC_TRIGGER_TICKS);
 
     /* --- 5. 刹车/死区: 不使能刹车 (MP6540H nFAULT 走 EXINT, 不接 TMR1_BRK) --- */
     tmr_brkdt_struct.brk_enable = FALSE;
@@ -118,9 +121,17 @@ void motor_pwm_at32m412_enable_output(void)
 
 void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint16_t phase_w)
 {
-    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, pwm_clamp_duty(phase_u));
-    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, pwm_clamp_duty(phase_v));
-    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, pwm_clamp_duty(phase_w));
+    uint16_t a;
+    uint16_t b;
+    uint16_t c;
+
+    a = pwm_clamp_duty(phase_u);
+    b = pwm_clamp_duty(phase_v);
+    c = pwm_clamp_duty(phase_w);
+    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, a);
+    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, b);
+    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, c);
+    current_sample_tracker_stage_duty(&s_sample_tracker, a, b, c);
 }
 
 void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks)
@@ -129,11 +140,18 @@ void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks)
         ticks = TMR1_ARR;
     }
     tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, ticks);
+    current_sample_tracker_stage_trigger(&s_sample_tracker, ticks);
+}
+
+void motor_pwm_at32m412_get_sample_plan(current_sample_plan_t *out)
+{
+    current_sample_tracker_get_sampled(&s_sample_tracker, out);
 }
 
 void motor_pwm_at32m412_enable_ovf_irq(void)
 {
     /* 使能 NVIC (优先级已在 board_nvic_init 设为 0=PRIO_FOC_ISR) + TMR1 OVF 中断使能 */
+    current_sample_tracker_rearm_from_next(&s_sample_tracker);
     nvic_irq_enable(TMR1_OVF_TMR10_IRQn, 0, 0);
     tmr_interrupt_enable(TMR1, TMR_OVF_INT, TRUE);
 }
@@ -150,6 +168,7 @@ void TMR1_OVF_TMR10_IRQHandler(void)
 {
     if (tmr_flag_get(TMR1, TMR_OVF_FLAG) != RESET) {
         tmr_flag_clear(TMR1, TMR_OVF_FLAG);
+        current_sample_tracker_latch_update(&s_sample_tracker);
         motor_control_isr_tick();
     }
 }

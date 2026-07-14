@@ -39,7 +39,7 @@ def test_pwm_adc_trigger_can_be_swept_from_shell():
 def test_pwm_adc_trigger_default_matches_bench_window():
     pwm_c = (ROOT / "platform" / "at32m412" / "motor_pwm_at32m412.c").read_text(encoding="utf-8")
 
-    assert "#define PWM_ADC_TRIGGER_TICKS 2500u" in pwm_c
+    assert "#define PWM_ADC_TRIGGER_TICKS (TMR1_ARR - 360u)" in pwm_c
     assert "tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, PWM_ADC_TRIGGER_TICKS)" in pwm_c
 
 
