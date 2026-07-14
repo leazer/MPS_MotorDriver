@@ -1,6 +1,7 @@
 # --- Build outputs ---
 build/
 .worktrees/
+.superpowers/
 cmake-build-*/
 *.o
 *.d
