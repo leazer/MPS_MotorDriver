@@ -8,13 +8,11 @@ Stage 5 电流环台架自动化验收脚本
 
 验收矩阵:
   Section A: 前置准备 (mc_cal 零偏标定)
-  Section B: ramp 模式基础验证 (强制无标定表, 验 enc 拒绝 + ramp 稳态)
-  Section C: 阶跃响应 (ramp 模式, 0.5A->1A, 稳态误差 < 5%)
-  Section D: enc 模式验证 (需有效标定表)
-  Section E: 清理 + 报告
+  Full quadrant: 使用已有编码器标定, 验证 ±50/100/200/500mA
 
 注:
-  - 上升时间 < 1ms 需示波器测, 脚本只测稳态误差 + 分支命中 (finsh ~50ms 轮询限制).
+  - 脚本不会擦除或自动执行编码器标定; 标定无效时会停止并提示先完成标定.
+  - 自动测试电流命令限制在 ±500mA.
   - 命令名 mc_cur (与 mc_current 电流采样显示区分, 见 motor_shell.c).
 
 用法:
@@ -30,10 +28,7 @@ PORT = "COM9"
 BAUD = 115200
 
 # ---- 验收阈值 ----
-IQ_STEADY_ERR_PCT = 5.0      # 稳态误差 < 5% (ramp)
-IQ_STEADY_ERR_PCT_ENC = 50.0 # enc 模式: 空载电机 BEMF 跑飞 + 标定残差致 Iq 纹波大,
-                              # 容差放宽. 真正精度需机械负载 + Stage 6 速度环 + 闭环重标定.
-CAL_TOTAL_TIMEOUT_S = 30     # 标定超时 (ALIGN 0.5s + FWD/REV 约 8.4s + 余量)
+CURRENT_TEST_POINTS_MA = (-50, 50, -100, 100, -200, 200, -500, 500)
 
 
 # ============================================================
@@ -94,42 +89,41 @@ def wait_msh(ser, timeout=15.0):
 
 
 # ============================================================
-# mc_debug cur 行解析
-# 格式: cur       : active=1 hits=12345 id=12mA iq=501mA id_ref=0mA iq_ref=500mA
+# mc_debug 电流与采样质量解析
 # ============================================================
-def parse_cur_line(text):
-    """从 mc_debug 输出提取 cur 行的 id/iq/id_ref/iq_ref (mA 整数) + active/hits.
-    返回 dict 或 None (无 cur 行)."""
-    for line in text.splitlines():
-        if "cur" in line and "active=" in line and "iq=" in line:
-            m_active = re.search(r"active=(\d)", line)
-            m_hits = re.search(r"hits=(\d+)", line)
-            m_id = re.search(r"id=(-?\d+)mA", line)
-            m_iq = re.search(r"iq=(-?\d+)mA", line)
-            m_idref = re.search(r"id_ref=(-?\d+)mA", line)
-            m_iqref = re.search(r"iq_ref=(-?\d+)mA", line)
-            if m_iq and m_iqref:
-                return {
-                    "active": int(m_active.group(1)) if m_active else -1,
-                    "hits": int(m_hits.group(1)) if m_hits else 0,
-                    "id": int(m_id.group(1)) if m_id else 0,
-                    "iq": int(m_iq.group(1)),
-                    "id_ref": int(m_idref.group(1)) if m_idref else 0,
-                    "iq_ref": int(m_iqref.group(1)),
-                }
-    return None
+def parse_current_snapshot(text):
+    snapshot = {}
+    avg = re.search(r"cur_avg\s*:\s*id=(-?\d+)mA iq=(-?\d+)mA", text)
+    count = re.search(
+        r"sample_count:\s*invalid_total=(\d+) invalid_consecutive=(\d+) pi_freeze=(\d+)",
+        text,
+    )
+    sample = re.search(r"sample\s*:\s*tick=(\d+) valid_mask=0x([0-9A-Fa-f]+) recon=(\d+)", text)
+    if not avg or not count or not sample:
+        return None
+    snapshot["id_avg"] = int(avg.group(1))
+    snapshot["iq_avg"] = int(avg.group(2))
+    snapshot["invalid_total"] = int(count.group(1))
+    snapshot["invalid_consecutive"] = int(count.group(2))
+    snapshot["pi_freeze"] = int(count.group(3))
+    snapshot["sample_tick"] = int(sample.group(1))
+    snapshot["valid_mask"] = int(sample.group(2), 16)
+    snapshot["recon"] = int(sample.group(3))
+    return snapshot
 
 
-def collect_cur_snapshots(ser, n, settle=0.1):
-    """采 n 个 mc_debug 快照, 返回 cur 解析列表 (跳过无 cur 行的)."""
-    snaps = []
-    for _ in range(n):
-        out = send_cmd(ser, "mc_debug", wait_after=0.6)
-        cur = parse_cur_line(out)
-        if cur is not None:
-            snaps.append(cur)
-        time.sleep(settle)
-    return snaps
+def read_current_snapshot(ser):
+    text = send_cmd(ser, "mc_debug", wait_after=0.6)
+    snapshot = parse_current_snapshot(text)
+    assert snapshot is not None, f"missing current/sample diagnostics: {text}"
+    return snapshot
+
+
+def read_fault_value(ser):
+    text = send_cmd(ser, "fault", wait_after=0.2)
+    match = re.search(r"fault\s*=\s*0x([0-9A-Fa-f]+)", text)
+    assert match, f"missing fault value: {text}"
+    return int(match.group(1), 16)
 
 
 # ============================================================
@@ -138,8 +132,8 @@ def collect_cur_snapshots(ser, n, settle=0.1):
 def section_a(ser, log):
     """A: 前置准备. mc_state 输出 state : 0 (DISABLED=0/ENABLED=1/FAULT=2).
     fault 命令输出 'fault = 0xHHHHHHHH' (位掩码, 0=无故障).
-    CAL_INVALID(0x40) 是告警级不阻止使能, 但 ramp 模式无需标定故可接受;
-    致命故障 (DRIVER/OC/SENSOR/UV/OV, mask=0x1F) 必须先 fault_clear."""
+    CAL_INVALID(0x40) 是告警级不阻止使能;
+    致命故障 (含 CURRENT_SAMPLE, mask=0x9F) 必须先 fault_clear."""
     log.append("=== Section A: precondition ===")
     out = send_cmd(ser, "mc_state")
     if not re.search(r"state\s*:\s*0\b", out):
@@ -151,105 +145,42 @@ def section_a(ser, log):
     out = send_cmd(ser, "fault")
     m_fault = re.search(r"fault\s*=\s*0x([0-9A-Fa-f]+)", out)
     fault_val = int(m_fault.group(1), 16) if m_fault else 0xFFFFFFFF
-    # 致命掩码 0x1F (DRIVER|OC|SENSOR|UV|OV); CAL_INVALID(0x40) 可接受
-    assert (fault_val & 0x1F) == 0, f"A: fatal fault active: {out.strip()}"
+    # 致命掩码 0x9F (含 CURRENT_SAMPLE); CAL_INVALID(0x40) 可接受
+    assert (fault_val & 0x9F) == 0, f"A: fatal fault active: {out.strip()}"
     send_cmd(ser, "mc_cal", wait_after=2.0)
     out = send_cmd(ser, "mc_cur", wait_after=0.5)
     assert "usage" in out, f"A: mc_cur missing usage: {out}"
     log.append("[A] PASS: DISABLED, fault clear, mc_cal done, mc_cur exists")
 
 
-def section_b(ser, log):
-    """B: ramp 模式 (强制 CAL_INVALID)
-    ramp 模式 theta 是软件斜坡, 与转子不同步, Iq 稳态无法达到目标.
-    本段只验: ISR 跑 CURRENT 分支 (cur_hits 递增) + 无致命故障锁存.
-    稳态 Iq 精度由 Section D (enc 模式) 验证."""
-    log.append("=== Section B: ramp mode (force cal invalid) ===")
-    # B1: 擦除标定 + 重启
-    send_cmd(ser, "enc_cal_erase", wait_after=1.0)
-    # reboot 不能走 send_cmd 的 read_all (会吃掉重启 banner+提示符,
-    # 导致后续 wait_msh 看到空缓冲区而超时). 直接发送再轮询等提示符.
-    for ch in "reboot":
-        send_char_and_wait_echo(ser, ch)
-        time.sleep(0.02)
-    ser.write(b"\r")
-    assert wait_msh(ser, timeout=20.0), "B: reboot timeout"
-    send_cmd(ser, "mc_cal", wait_after=2.0)  # 重启后重新零偏标定
-    # mc_cal 使能 MP6540H 时可能有瞬态电流尖峰触发不平衡故障, 清除之
-    send_cmd(ser, "fault_clear", wait_after=0.3)
-    # B2: enc 模式应被拒 (CAL_INVALID)
-    out = send_cmd(ser, "mc_cur 500 enc")
-    assert "cal invalid" in out.lower(), f"B2: enc not rejected: {out}"
-    log.append("[B2] PASS: enc rejected when cal invalid")
-    # B3: ramp 启动 (200mA 低电流, 减小 EMI)
-    out = send_cmd(ser, "mc_cur 200 ramp 60")
-    assert "current loop" in out and "200" in out, f"B3: ramp start failed: {out}"
-    log.append("[B3] PASS: ramp mode started (0.2A, 60rpm)")
-    # B4: 采快照, 验 ISR 跑 CURRENT 分支 (不验 Iq 稳态, ramp theta 不精确)
-    time.sleep(0.5)
-    snaps = collect_cur_snapshots(ser, 10, settle=0.15)
-    assert len(snaps) >= 3, f"B4: too few snapshots: {len(snaps)}"
-    # 验 cur_hits 递增 (ISR 跑 CURRENT 分支)
-    hits_inc = snaps[-1]["hits"] - snaps[0]["hits"]
-    assert hits_inc > 0, f"B4: cur_hits not increasing: {snaps[0]['hits']}->{snaps[-1]['hits']}"
-    log.append(f"[B4] PASS: cur_hits+{hits_inc} (ISR running CURRENT branch)")
-    send_cmd(ser, "mc_stop", wait_after=0.5)
+def section_full_quadrant_current(ser, log):
+    status = send_cmd(ser, "enc_cal_status", wait_after=0.3)
+    assert "DONE" in status, "encoder calibration invalid; complete calibration before this test"
+    send_cmd(ser, "fault_clear", wait_after=0.2)
 
-
-def section_c(ser, log):
-    """C: enc 模式阶跃响应 (30mA->50mA)
-    用 enc 模式 (真 FOC) 而非 ramp, 因 ramp theta 不精确无法控 Iq.
-    小电流 (空载低 BEMF 可稳态). 上升时间 < 1ms 需示波器测, 脚本只测稳态."""
-    log.append("=== Section C: step response (enc, 30->50mA) ===")
-    send_cmd(ser, "mc_cur 30 enc", wait_after=0.5)
-    time.sleep(0.3)
-    # 阶跃到 50mA
-    send_cmd(ser, "mc_cur 50 enc", wait_after=0.5)
-    time.sleep(0.5)  # 等稳态 (finsh 轮询采不到 1ms 上升)
-    snaps = collect_cur_snapshots(ser, 20, settle=0.05)
-    assert len(snaps) >= 5, f"C: too few snapshots: {len(snaps)}"
-    # 稳态误差: 末 5 个 iq 均值 vs 50mA (enc 模式容差 10%, 含标定残差)
-    iq_vals = [s["iq"] for s in snaps[-5:]]
-    iq_steady = sum(iq_vals) / len(iq_vals)
-    err_pct = abs(iq_steady - 50) / 50.0 * 100
-    assert err_pct < IQ_STEADY_ERR_PCT_ENC, f"C: steady err {err_pct:.1f}% >= {IQ_STEADY_ERR_PCT_ENC}%"
-    log.append(f"[C] PASS: iq steady={iq_steady}mA err={err_pct:.1f}% (< {IQ_STEADY_ERR_PCT_ENC}%, enc 50mA)")
-    send_cmd(ser, "mc_stop", wait_after=0.5)
-
-
-def section_d(ser, log):
-    """D: enc 模式 (需标定表)"""
-    log.append("=== Section D: enc mode (with calibration) ===")
-    # D1: 标定 (~10s)
-    send_cmd(ser, "enc_cal_start auto", wait_after=2.0)
-    deadline = time.time() + CAL_TOTAL_TIMEOUT_S
-    done = False
-    while time.time() < deadline:
-        out = send_cmd(ser, "enc_cal_status", wait_after=1.0)
-        if "DONE" in out:
-            done = True
-            break
-        if "ABORTED" in out:
-            log.append(f"[D] FAIL: calibrate aborted: {out}")
-            return False
-        time.sleep(2.0)
-    assert done, f"D: calibrate timeout ({CAL_TOTAL_TIMEOUT_S}s)"
-    log.append("[D1] PASS: calibration DONE")
-    # D3: enc 启动 (50mA, 空载电机低 BEMF 可稳态; 大电流需机械负载防 BEMF 跑飞)
-    out = send_cmd(ser, "mc_cur 50 enc", wait_after=0.5)
-    assert "current loop" in out and "enc" in out, f"D3: enc start failed: {out}"
-    log.append("[D3] PASS: enc mode started (50mA, 空载低 BEMF)")
-    # D4: 验稳态 (容差大, 标定残差 ~3°)
-    time.sleep(0.5)
-    snaps = collect_cur_snapshots(ser, 10, settle=0.15)
-    assert len(snaps) >= 3, f"D4: too few snapshots: {len(snaps)}"
-    iq_vals = [s["iq"] for s in snaps[-3:]]
-    iq_steady = sum(iq_vals) / len(iq_vals)
-    err_pct = abs(iq_steady - 50) / 50.0 * 100
-    assert err_pct < IQ_STEADY_ERR_PCT_ENC, f"D4: enc iq err {err_pct:.1f}% >= {IQ_STEADY_ERR_PCT_ENC}%"
-    log.append(f"[D4] PASS: enc iq={iq_steady}mA err={err_pct:.1f}% (< {IQ_STEADY_ERR_PCT_ENC}%, 50mA 含标定残差)")
-    send_cmd(ser, "mc_stop", wait_after=0.5)
-    return True
+    for target_ma in CURRENT_TEST_POINTS_MA:
+        before = read_current_snapshot(ser)
+        try:
+            start = send_cmd(ser, f"mc_cur {target_ma} enc", wait_after=0.5)
+            assert "current loop" in start, f"start failed at {target_ma}mA: {start}"
+            time.sleep(0.5)
+            snapshots = [read_current_snapshot(ser) for _ in range(3)]
+            snapshot = snapshots[-1]
+            tolerance_ma = max(20, abs(target_ma) * 0.10)
+            assert abs(snapshot["iq_avg"] - target_ma) <= tolerance_ma
+            assert abs(snapshot["id_avg"]) <= 100
+            assert snapshot["invalid_consecutive"] == 0
+            assert snapshot["invalid_total"] == before["invalid_total"]
+            assert snapshot["pi_freeze"] == before["pi_freeze"]
+            fault_value = read_fault_value(ser)
+            assert (fault_value & 0x9F) == 0
+            log.append(
+                f"PASS {target_ma:+d}mA: id={snapshot['id_avg']}mA "
+                f"iq={snapshot['iq_avg']}mA mask=0x{snapshot['valid_mask']:02X} "
+                f"recon={snapshot['recon']}"
+            )
+        finally:
+            send_cmd(ser, "mc_stop", wait_after=0.3)
 
 
 def main():
@@ -258,9 +189,7 @@ def main():
     log = []
     try:
         section_a(ser, log)
-        section_b(ser, log)   # ramp (erase cal), 验 ISR 分支命中
-        section_d(ser, log)   # 标定 + enc 稳态 (先于 C, 因 C 依赖有效标定表)
-        section_c(ser, log)   # enc 阶跃响应
+        section_full_quadrant_current(ser, log)
         log.append("\n=== ALL PASS ===")
     except AssertionError as e:
         log.append(f"\n=== FAIL: {e} ===")

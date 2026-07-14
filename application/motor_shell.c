@@ -210,6 +210,18 @@ static void mc_debug(int argc, char **argv)
                dbg.ol_branch_hits, dbg.fault_hits, dbg.disabled_hits);
     rt_kprintf("current   : ia=%ld ib=%ld ic=%ld mA\n",
                (long)dbg.ia_ma, (long)dbg.ib_ma, (long)dbg.ic_ma);
+    rt_kprintf("raw_current: ia=%ld ib=%ld ic=%ld mA\n",
+               (long)dbg.raw_ia_ma, (long)dbg.raw_ib_ma, (long)dbg.raw_ic_ma);
+    rt_kprintf("sample     : tick=%u valid_mask=0x%02X recon=%u\n",
+               dbg.sample_tick, dbg.sample_valid_mask, dbg.reconstructed_phase);
+    rt_kprintf("sample_duty: a=%u b=%u c=%u\n",
+               dbg.sample_duty_a, dbg.sample_duty_b, dbg.sample_duty_c);
+    rt_kprintf("sample_margin: a=%u b=%u c=%u\n",
+               dbg.sample_margin_a, dbg.sample_margin_b, dbg.sample_margin_c);
+    rt_kprintf("sample_count: invalid_total=%lu invalid_consecutive=%u pi_freeze=%lu\n",
+               (unsigned long)dbg.sample_invalid_total,
+               dbg.sample_invalid_consecutive,
+               (unsigned long)dbg.pi_freeze_count);
     rt_kprintf("adc_raw   : ia=%u ib=%u ic=%u\n",
                dbg.ia_raw, dbg.ib_raw, dbg.ic_raw);
     rt_kprintf("vbus      : %ld mV\n", (long)dbg.vbus_mv);
@@ -256,6 +268,18 @@ static void mc_current(int argc, char **argv)
                dbg.ia_raw, dbg.ib_raw, dbg.ic_raw);
     rt_kprintf("current   : ia=%ld ib=%ld ic=%ld mA\n",
                (long)dbg.ia_ma, (long)dbg.ib_ma, (long)dbg.ic_ma);
+    rt_kprintf("raw_current: ia=%ld ib=%ld ic=%ld mA\n",
+               (long)dbg.raw_ia_ma, (long)dbg.raw_ib_ma, (long)dbg.raw_ic_ma);
+    rt_kprintf("sample     : tick=%u valid_mask=0x%02X recon=%u\n",
+               dbg.sample_tick, dbg.sample_valid_mask, dbg.reconstructed_phase);
+    rt_kprintf("sample_duty: a=%u b=%u c=%u\n",
+               dbg.sample_duty_a, dbg.sample_duty_b, dbg.sample_duty_c);
+    rt_kprintf("sample_margin: a=%u b=%u c=%u\n",
+               dbg.sample_margin_a, dbg.sample_margin_b, dbg.sample_margin_c);
+    rt_kprintf("sample_count: invalid_total=%lu invalid_consecutive=%u pi_freeze=%lu\n",
+               (unsigned long)dbg.sample_invalid_total,
+               dbg.sample_invalid_consecutive,
+               (unsigned long)dbg.pi_freeze_count);
     rt_kprintf("sum       : %ld mA (threshold %ld mA)\n",
                (long)(dbg.ia_ma + dbg.ib_ma + dbg.ic_ma),
                (long)(IMBALANCE_THRESHOLD_A * 1000.0f));
@@ -442,6 +466,7 @@ static void fault(int argc, char **argv)
     if (f & FAULT_OVERVOLTAGE)  rt_kprintf("  OVERVOLTAGE\n");
     if (f & FAULT_CAN_TIMEOUT)  rt_kprintf("  CAN_TIMEOUT\n");
     if (f & FAULT_CAL_INVALID)  rt_kprintf("  CAL_INVALID\n");
+    if (f & FAULT_CURRENT_SAMPLE) rt_kprintf("  CURRENT_SAMPLE\n");
 }
 MSH_CMD_EXPORT(fault, show fault flags);
 

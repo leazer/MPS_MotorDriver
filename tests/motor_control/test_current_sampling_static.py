@@ -140,6 +140,25 @@ def test_all_fatal_current_faults_use_state_latching_helper():
     assert "fault_manager_set(FAULT_CURRENT_SAMPLE)" not in tick
 
 
+def test_shell_reports_sample_quality_and_fault_name():
+    shell = read(SHELL)
+    for token in (
+        "raw_current", "sample     :", "sample_duty", "sample_margin",
+        "sample_count", "valid_mask", "recon", "pi_freeze",
+        "CURRENT_SAMPLE",
+    ):
+        assert token in shell
+
+
+def test_bench_matrix_is_full_quadrant_but_stays_below_500ma():
+    bench = read(ROOT / "tests" / "stage5_bench.py")
+    assert "CURRENT_TEST_POINTS_MA = (-50, 50, -100, 100, -200, 200, -500, 500)" in bench
+    assert "max(20, abs(target_ma) * 0.10)" in bench
+    assert 'abs(snapshot["id_avg"]) <= 100' in bench
+    assert 'snapshot["invalid_consecutive"] == 0' in bench
+    assert "750" not in re.search(r"CURRENT_TEST_POINTS_MA\s*=\s*\([^\)]*\)", bench).group(0)
+
+
 if __name__ == "__main__":
     test_pwm_stages_hardware_and_tracker_from_identical_values()
     test_thread_updates_are_deferred_to_the_update_handler()
@@ -149,4 +168,6 @@ if __name__ == "__main__":
     test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames()
     test_raw_currents_cannot_bypass_reconstruction()
     test_all_fatal_current_faults_use_state_latching_helper()
+    test_shell_reports_sample_quality_and_fault_name()
+    test_bench_matrix_is_full_quadrant_but_stays_below_500ma()
     print("current sampling static tests passed")
