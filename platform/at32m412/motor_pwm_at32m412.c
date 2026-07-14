@@ -8,12 +8,120 @@
 
 static current_sample_tracker_t s_sample_tracker;
 
+typedef struct {
+    volatile uint32_t sequence;
+    volatile uint16_t a;
+    volatile uint16_t b;
+    volatile uint16_t c;
+} pwm_duty_request_t;
+
+typedef struct {
+    volatile uint32_t sequence;
+    volatile uint16_t ticks;
+} pwm_trigger_request_t;
+
+static pwm_duty_request_t s_thread_duty_request;
+static pwm_trigger_request_t s_thread_trigger_request;
+static uint32_t s_duty_applied_sequence;
+static uint32_t s_trigger_applied_sequence;
+static volatile bool s_ovf_irq_enabled;
+static volatile bool s_in_update_handler;
+
 static uint16_t pwm_clamp_duty(uint16_t duty)
 {
     if (duty > PWM_DUTY_MAX) {
         return PWM_DUTY_MAX;
     }
     return duty;
+}
+
+static void pwm_apply_duty_ticks(uint16_t a, uint16_t b, uint16_t c)
+{
+    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, a);
+    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, b);
+    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, c);
+    current_sample_tracker_stage_duty(&s_sample_tracker, a, b, c);
+}
+
+static void pwm_apply_adc_trigger_ticks(uint16_t ticks)
+{
+    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, ticks);
+    current_sample_tracker_stage_trigger(&s_sample_tracker, ticks);
+}
+
+static bool pwm_update_must_be_deferred(void)
+{
+    return s_ovf_irq_enabled && !s_in_update_handler;
+}
+
+static void pwm_queue_duty_request(uint16_t a, uint16_t b, uint16_t c)
+{
+    uint32_t sequence;
+
+    /* Odd means being written; the final even sequence publishes the RAM snapshot.
+     * No timer register is touched here, so an asynchronous UEV cannot split it. */
+    sequence = s_thread_duty_request.sequence;
+    s_thread_duty_request.sequence = sequence + 1u;
+    __DMB();
+    s_thread_duty_request.a = a;
+    s_thread_duty_request.b = b;
+    s_thread_duty_request.c = c;
+    __DMB();
+    s_thread_duty_request.sequence = sequence + 2u;
+}
+
+static void pwm_queue_trigger_request(uint16_t ticks)
+{
+    uint32_t sequence;
+
+    /* Same publish protocol as the three-duty request above. */
+    sequence = s_thread_trigger_request.sequence;
+    s_thread_trigger_request.sequence = sequence + 1u;
+    __DMB();
+    s_thread_trigger_request.ticks = ticks;
+    __DMB();
+    s_thread_trigger_request.sequence = sequence + 2u;
+}
+
+static void pwm_apply_pending_thread_updates(void)
+{
+    uint32_t sequence;
+    uint16_t a;
+    uint16_t b;
+    uint16_t c;
+    uint16_t ticks;
+
+    /* This runs once per UEV after the control tick. Stable requests become the
+     * final hardware preload + tracker plan for the following PWM cycle. */
+    sequence = s_thread_duty_request.sequence;
+    if (((sequence & 1u) == 0u) && (sequence != s_duty_applied_sequence)) {
+        __DMB();
+        a = s_thread_duty_request.a;
+        b = s_thread_duty_request.b;
+        c = s_thread_duty_request.c;
+        __DMB();
+        if (sequence == s_thread_duty_request.sequence) {
+            pwm_apply_duty_ticks(a, b, c);
+            s_duty_applied_sequence = sequence;
+        }
+    }
+
+    sequence = s_thread_trigger_request.sequence;
+    if (((sequence & 1u) == 0u) && (sequence != s_trigger_applied_sequence)) {
+        __DMB();
+        ticks = s_thread_trigger_request.ticks;
+        __DMB();
+        if (sequence == s_thread_trigger_request.sequence) {
+            pwm_apply_adc_trigger_ticks(ticks);
+            s_trigger_applied_sequence = sequence;
+        }
+    }
+}
+
+static void pwm_discard_pending_thread_updates(void)
+{
+    s_duty_applied_sequence = s_thread_duty_request.sequence;
+    s_trigger_applied_sequence = s_thread_trigger_request.sequence;
 }
 
 void motor_pwm_at32m412_init(void)
@@ -85,6 +193,12 @@ void motor_pwm_at32m412_init(void)
     current_sample_tracker_init(&s_sample_tracker,
                                 TMR1_ARR / 2u,
                                 PWM_ADC_TRIGGER_TICKS);
+    s_thread_duty_request.sequence = 0u;
+    s_thread_trigger_request.sequence = 0u;
+    s_duty_applied_sequence = 0u;
+    s_trigger_applied_sequence = 0u;
+    s_ovf_irq_enabled = false;
+    s_in_update_handler = false;
 
     /* --- 5. 刹车/死区: 不使能刹车 (MP6540H nFAULT 走 EXINT, 不接 TMR1_BRK) --- */
     tmr_brkdt_struct.brk_enable = FALSE;
@@ -128,10 +242,11 @@ void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint1
     a = pwm_clamp_duty(phase_u);
     b = pwm_clamp_duty(phase_v);
     c = pwm_clamp_duty(phase_w);
-    tmr_channel_value_set(TMR1, PWM_PHASE_U_TMR_CHANNEL, a);
-    tmr_channel_value_set(TMR1, PWM_PHASE_V_TMR_CHANNEL, b);
-    tmr_channel_value_set(TMR1, PWM_PHASE_W_TMR_CHANNEL, c);
-    current_sample_tracker_stage_duty(&s_sample_tracker, a, b, c);
+    if (pwm_update_must_be_deferred()) {
+        pwm_queue_duty_request(a, b, c);
+        return;
+    }
+    pwm_apply_duty_ticks(a, b, c);
 }
 
 void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks)
@@ -139,8 +254,11 @@ void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks)
     if (ticks > TMR1_ARR) {
         ticks = TMR1_ARR;
     }
-    tmr_channel_value_set(TMR1, TMR_SELECT_CHANNEL_4, ticks);
-    current_sample_tracker_stage_trigger(&s_sample_tracker, ticks);
+    if (pwm_update_must_be_deferred()) {
+        pwm_queue_trigger_request(ticks);
+        return;
+    }
+    pwm_apply_adc_trigger_ticks(ticks);
 }
 
 void motor_pwm_at32m412_get_sample_plan(current_sample_plan_t *out)
@@ -152,6 +270,8 @@ void motor_pwm_at32m412_enable_ovf_irq(void)
 {
     /* 使能 NVIC (优先级已在 board_nvic_init 设为 0=PRIO_FOC_ISR) + TMR1 OVF 中断使能 */
     current_sample_tracker_rearm_from_next(&s_sample_tracker);
+    pwm_discard_pending_thread_updates();
+    s_ovf_irq_enabled = true;
     nvic_irq_enable(TMR1_OVF_TMR10_IRQn, 0, 0);
     tmr_interrupt_enable(TMR1, TMR_OVF_INT, TRUE);
 }
@@ -160,6 +280,8 @@ void motor_pwm_at32m412_disable_ovf_irq(void)
 {
     tmr_interrupt_enable(TMR1, TMR_OVF_INT, FALSE);
     NVIC_DisableIRQ(TMR1_OVF_TMR10_IRQn);
+    s_ovf_irq_enabled = false;
+    pwm_discard_pending_thread_updates();
 }
 
 /* TMR1 溢出中断 (16kHz, 中心对齐顶点): 触发 FOC ISR.
@@ -168,7 +290,10 @@ void TMR1_OVF_TMR10_IRQHandler(void)
 {
     if (tmr_flag_get(TMR1, TMR_OVF_FLAG) != RESET) {
         tmr_flag_clear(TMR1, TMR_OVF_FLAG);
+        s_in_update_handler = true;
         current_sample_tracker_latch_update(&s_sample_tracker);
         motor_control_isr_tick();
+        pwm_apply_pending_thread_updates();
+        s_in_update_handler = false;
     }
 }

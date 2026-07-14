@@ -57,7 +57,7 @@ static void pwm_duty(int argc, char **argv)
     v = (uint16_t)strtol(argv[2], NULL, 0);
     w = (uint16_t)strtol(argv[3], NULL, 0);
     motor_pwm_at32m412_set_duty_ticks(u, v, w);
-    rt_kprintf("duty set: u=%u v=%u w=%u (clamped to %u)\n", u, v, w, PWM_DUTY_MAX);
+    rt_kprintf("duty request: u=%u v=%u w=%u (clamped to %u)\n", u, v, w, PWM_DUTY_MAX);
 }
 MSH_CMD_EXPORT(pwm_duty, set 3-phase duty ticks: pwm_duty <u> <v> <w>);
 
@@ -76,7 +76,7 @@ static void pwm_adc_trig(int argc, char **argv)
         return;
     }
     motor_pwm_at32m412_set_adc_trigger_ticks((uint16_t)ticks);
-    rt_kprintf("ADC trigger CH4=%u\n", TMR1->c4dt);
+    rt_kprintf("ADC trigger request=%u\n", (uint16_t)ticks);
 }
 MSH_CMD_EXPORT(pwm_adc_trig, set ADC trigger compare ticks: pwm_adc_trig <ticks>);
 

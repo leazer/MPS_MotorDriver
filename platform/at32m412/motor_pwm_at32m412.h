@@ -21,10 +21,12 @@ void motor_pwm_at32m412_safe_init(void);
 void motor_pwm_at32m412_disable_output(void);
 void motor_pwm_at32m412_enable_output(void);
 
-/* 设置三相占空比 ticks (0..TMR1_ARR), 内部硬限幅 PWM_DUTY_MAX (95%) */
+/* 设置三相占空比 ticks (0..TMR1_ARR), 内部硬限幅 PWM_DUTY_MAX (95%).
+ * OVF 运行时: update handler 内立即写入下一周期; 线程调用排队到下个 update handler. */
 void motor_pwm_at32m412_set_duty_ticks(uint16_t phase_u, uint16_t phase_v, uint16_t phase_w);
 
-/* 设置 TMR1_CH4 ADC 注入触发比较点 (调试采样窗口用, 0..ARR) */
+/* 设置 TMR1_CH4 ADC 注入触发比较点 (调试采样窗口用, 0..ARR).
+ * OVF 运行时的线程调用与 duty 一样在 update handler 统一发布. */
 void motor_pwm_at32m412_set_adc_trigger_ticks(uint16_t ticks);
 
 /* 获取与最新 ADC 注入结果对应的 PWM 占空比及采样点 */
