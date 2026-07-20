@@ -132,6 +132,12 @@ static void test_fewer_than_two_valid_is_invalid(void)
     current_reconstruction_run(&p, 0.2f, 0.3f, 0.4f, 180u, &r);
     assert(!r.frame_valid);
     assert(r.reconstructed_phase == CURRENT_RECON_PHASE_NONE);
+    assert_close(r.raw_ia, 0.2f);
+    assert_close(r.raw_ib, 0.3f);
+    assert_close(r.raw_ic, 0.4f);
+    assert_close(r.ia, 0.0f);
+    assert_close(r.ib, 0.0f);
+    assert_close(r.ic, 0.0f);
 }
 
 static void test_guard_debounce_and_reset(void)

@@ -29,6 +29,9 @@ BAUD = 115200
 
 # ---- 验收阈值 ----
 CURRENT_TEST_POINTS_MA = (-50, 50, -100, 100, -200, 200, -500, 500)
+EXPECTED_SAMPLE_TICK = 5264
+EXPECTED_VALID_MASK = 0x07
+SAFE_DUTY_TICKS = 2812
 
 
 # ============================================================
@@ -141,6 +144,46 @@ def read_fault_value(ser):
     return int(match.group(1), 16)
 
 
+def verify_final_safe_state(ser, log):
+    send_cmd(ser, "mc_stop", wait_after=0.5)
+    state_text = send_cmd(ser, "mc_state", wait_after=0.2)
+    fault_value = read_fault_value(ser)
+    pwm_text = send_cmd(ser, "pwm_info", wait_after=0.2)
+    snapshot = read_current_snapshot(ser)
+
+    state = re.search(r"state\s*:\s*(\d+)", state_text)
+    duties = re.search(
+        r"CCR1/2/3\s*:\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)",
+        pwm_text,
+    )
+    trigger = re.search(r"CCR4\s*:\s*(\d+)", pwm_text)
+    enable = re.search(r"EN\(PB10\)\s*:\s*([01])", pwm_text)
+    assert state and int(state.group(1)) == 0, f"final state not DISABLED: {state_text}"
+    assert fault_value == 0, f"final fault not clear: 0x{fault_value:08X}"
+    assert duties, f"missing final PWM duties: {pwm_text}"
+    duty_values = tuple(int(value) for value in duties.groups())
+    assert duty_values == (SAFE_DUTY_TICKS,) * 3, \
+        f"final PWM not safe: {duty_values}"
+    assert trigger and int(trigger.group(1)) == EXPECTED_SAMPLE_TICK, \
+        f"final sample tick wrong: {pwm_text}"
+    assert enable and int(enable.group(1)) == 0, f"final EN not low: {pwm_text}"
+    assert snapshot["sample_tick"] == EXPECTED_SAMPLE_TICK, \
+        f"final diagnostic sample tick wrong: {snapshot}"
+    assert snapshot["valid_mask"] == EXPECTED_VALID_MASK, \
+        f"final diagnostic valid mask wrong: {snapshot}"
+    assert snapshot["invalid_consecutive"] == 0, \
+        f"final invalid frame streak: {snapshot}"
+
+    log.append(
+        "FINAL SAFE: state=DISABLED fault=0x00000000 en=0 "
+        f"ccr={duty_values[0]}/{duty_values[1]}/{duty_values[2]} "
+        f"tick={snapshot['sample_tick']} mask=0x{snapshot['valid_mask']:02X} "
+        f"invalid_total={snapshot['invalid_total']} "
+        f"invalid_consecutive={snapshot['invalid_consecutive']} "
+        f"pi_freeze={snapshot['pi_freeze']}"
+    )
+
+
 # ============================================================
 # 验收 Sections
 # ============================================================
@@ -188,13 +231,23 @@ def section_full_quadrant_current(ser, log):
             snapshots = [read_current_snapshot(ser) for _ in range(3)]
             snapshot = snapshots[-1]
             tolerance_ma = max(20, abs(target_ma) * 0.10)
-            assert abs(snapshot["iq_avg"] - target_ma) <= tolerance_ma
-            assert abs(snapshot["id_avg"]) <= 100
-            assert snapshot["invalid_consecutive"] == 0
-            assert snapshot["invalid_total"] == before["invalid_total"]
-            assert snapshot["pi_freeze"] == before["pi_freeze"]
+            assert abs(snapshot["iq_avg"] - target_ma) <= tolerance_ma, \
+                f"Iq tracking failed at {target_ma}mA: {snapshot}"
+            assert abs(snapshot["id_avg"]) <= 100, \
+                f"Id rejection failed at {target_ma}mA: {snapshot}"
+            assert snapshot["sample_tick"] == EXPECTED_SAMPLE_TICK, \
+                f"sample tick wrong at {target_ma}mA: {snapshot}"
+            assert snapshot["valid_mask"] == EXPECTED_VALID_MASK, \
+                f"valid mask wrong at {target_ma}mA: {snapshot}"
+            assert snapshot["invalid_consecutive"] == 0, \
+                f"invalid frame streak at {target_ma}mA: {snapshot}"
+            assert snapshot["invalid_total"] == before["invalid_total"], \
+                f"invalid total grew at {target_ma}mA: before={before} after={snapshot}"
+            assert snapshot["pi_freeze"] == before["pi_freeze"], \
+                f"PI freeze grew at {target_ma}mA: before={before} after={snapshot}"
             fault_value = read_fault_value(ser)
-            assert (fault_value & 0x9F) == 0
+            assert (fault_value & 0x9F) == 0, \
+                f"fatal fault at {target_ma}mA: 0x{fault_value:08X}"
             log.append(
                 f"PASS {target_ma:+d}mA: id={snapshot['id_avg']}mA "
                 f"iq={snapshot['iq_avg']}mA mask=0x{snapshot['valid_mask']:02X} "
@@ -214,6 +267,7 @@ def main(argv=None):
         ser = open_port(port)
         section_a(ser, log)
         section_full_quadrant_current(ser, log)
+        verify_final_safe_state(ser, log)
         log.append("\n=== ALL PASS ===")
     except Exception as e:
         status = 1

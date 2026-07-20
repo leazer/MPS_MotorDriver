@@ -33,7 +33,7 @@ void motor_app_init(void)
     /* PWM: TMR1 中心对齐 16kHz, 初始 50% 三相同电位, MP6540H EN 保持低 */
     motor_pwm_at32m412_safe_init();
 
-    /* Stage 3: ADC2 注入序列初始化 (TMR1_CH4 顶点触发, 需在 PWM 之后).
+    /* Stage 3: ADC2 注入序列初始化 (TMR1_CH4 近顶点低边窗口触发, 需在 PWM 之后).
      * 初始化后 ADC 开始由硬件触发转换, 但 ISR 未启动, 结果不会被读取. */
     current_sense_at32m412_init();
 

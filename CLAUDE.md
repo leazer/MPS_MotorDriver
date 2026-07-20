@@ -153,7 +153,7 @@ Stage 3 (ADC 同步采样与电流反馈) 代码完成, 详见 spec §7 Stage 3.
   - VBUS 软件触发读取: `current_sense_at32m412_read_vbus()` 返回电压 (V)
 - `motor_pwm_at32m412.c` 修改:
   - CH4 从仅设比较值改为完整 `tmr_output_channel_config` (必须配置为输出比较才产生比较事件触发 ADC)
-  - **CH4 触发点从顶点 (ARR) 改为谷底 (1)**: MP6540H 电流镜仅在高边导通时反映相电流, 顶点采样高边关闭读数为 V_REF. 谷底三相高边全部导通, 是唯一保证三相均可测的采样点
+  - **历史 CH4 触发点改动（已被 2026-07-21 结论取代）**: 当时从 ARR 改到谷底 1 的“高边电流镜”解释是中间误判。SOx 实际对应低边器件电流；当前使用 CCR4=5264、180-tick 低边窗口判定、两相择优重构和低边极性归一化。
 - `motor_control_isr.[ch]` 修改:
   - ISR 每 tick 读 ADC 注入序列 (ia/ib/ic raw), 算电流 (A)
   - VBUS 1kHz 分频采样 (16kHz/16), 缓存供 SVPWM 使用, 替代 Stage 2 硬编码 12V
@@ -165,7 +165,7 @@ Stage 3 (ADC 同步采样与电流反馈) 代码完成, 详见 spec §7 Stage 3.
 - `motor_shell.c` 新增 3 个 msh 命令: `mc_current` / `mc_cal` / `vbus`
 
 关键决策 (与 spec 原文不同):
-- **CH4 触发点改为谷底**: spec §3.2 原设计顶点采样, 基于低边采样电阻拓扑. MP6540H 电流镜在高边关闭时输出 V_REF (零电流), 必须在高边导通时采样. 谷底 (counter≈0) 三相高边全部导通. 实测验证: 顶点采样 raw 全部接近 2048 (V_REF), 谷底采样能读到实际电流
+- **历史 CH4=1 结论已废弃**: 2026-06-22 曾将“谷底可测、高边导通有效”作为结论。2026-07-20/21 重新按低边器件电流语义完成窗口扫描与全象限验证后，固定使用 CCR4=5264，并由软件判断各相低边稳定窗口、重构缺相和转换电流极性。
 - **零偏窗口 50 LSB**: spec §4.3.3 原文 20 LSB. 实测零偏 ~2068 (偏差 22 LSB), 由 4.7k/4.7k 分压电阻 1% 容差 + MP6540H 偏置决定. 50 LSB = 0.16A, 安全范围内
 - **ADC2 时钟**: 需同时开 CRM_ADC1_PERIPH_CLOCK + CRM_ADC2_PERIPH_CLOCK (ADC common 配置依赖 ADC1 时钟). 仅开 ADC2 会导致 ADC 校准 while 循环挂死, 板子无法启动
 - **mc_cal 标定时使能 MP6540H**: 电流镜需芯片上电才能输出有效 V_REF. EN=LOW 时 SO 引脚偏置不正常
@@ -192,8 +192,8 @@ Stage 3 (ADC 同步采样与电流反馈) 代码完成, 详见 spec §7 Stage 3.
 关键约束 (调试发现):
 - **ADC2 时钟必须同时开 ADC1+ADC2**: 仅 CRM_ADC2_PERIPH_CLOCK 不够, ADC common 配置需 ADC1 时钟. 漏开会导致校准循环挂死
 - **CH4 必须调用 tmr_output_channel_config**: 仅 tmr_channel_value_set 设比较值不产生比较事件, ADC 注入序列无法触发. 参考工程 mc_hwio.c 同款做法
-- **MP6540H 电流镜采样时序**: 高边关闭时 I_LOAD=0, V_SO=V_REF=2048. 必须在高边导通期采样. 中心对齐谷底 (counter≈0) 三相高边全开, 是正确采样点
-- **ISR 读 ADC 时序**: TMR1_CH4 谷底触发 ADC -> 转换 3µs -> TMR1_OVF 顶点中断读结果. 延迟半个周期 (31µs), 对 16kHz 控制环可忽略
+- **MP6540H 电流采样时序（2026-07-21 更正）**: SOx 反映低边器件电流。闭环只消费满足 `sample_tick-duty >= 180` 的低边稳定样本；当前 CCR4=5264，至少两相有效时重构第三相，并在重构边界将低边器件电流符号转换为 FOC 相电流符号。
+- **ISR 读 ADC 时序（2026-07-21 更正）**: TMR1_CH4 在 CCR4=5264 的低边稳定窗口触发 ADC，控制 ISR 读取已完成的注入结果；PWM tracker 保证样本与实际生效占空比配对。
 
 ## Stage 4 + 4b Complete - 2026-06-22
 

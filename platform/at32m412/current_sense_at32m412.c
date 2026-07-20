@@ -1,5 +1,5 @@
 /*
- * current_sense_at32m412.c - ADC2 注入序列 + TMR1_CH4 顶点触发 + VBUS 普通转换
+ * current_sense_at32m412.c - ADC2 注入序列 + TMR1_CH4 低边窗口触发 + VBUS 普通转换
  *
  * Stage 3: 电流采样与母线电压反馈 (spec §3.2 / §4.3)
  *
@@ -92,7 +92,7 @@ static void current_sense_adc2_config(void)
     adc_preempt_channel_set(ADC2, SOB_ADC_CHANNEL, 2, ADC_PREEMPT_SAMPLETIME);
     adc_preempt_channel_set(ADC2, SOC_ADC_CHANNEL, 3, ADC_PREEMPT_SAMPLETIME);
 
-    /* 注入触发: TMR1_CH4 上升沿 (PWM 顶点, spec §3.2) */
+    /* 注入触发: TMR1_CH4 上升沿；具体采样 tick 由 PWM 驱动配置并跟踪. */
     adc_preempt_conversion_trigger_set(ADC2, ADC_PREEMPT_TRIG_TMR1CH4,
                                        ADC_PREEMPT_TRIG_EDGE_RISING);
 

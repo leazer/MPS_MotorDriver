@@ -8,10 +8,10 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 
-/* current_sense_at32m412 - ADC2 注入序列 + TMR1_CH4 顶点触发 (spec §3.2/§4.3)
+/* current_sense_at32m412 - ADC2 注入序列 + TMR1_CH4 低边窗口触发 (spec §3.2/§4.3)
  *
  * 硬件: MP6540H 电流镜, SOA/SOB/SOC -> ADC2_IN9/8/7, VBUS -> ADC2_IN6
- *   - 注入序列 (preempt): 3 通道 [SOA, SOB, SOC], 由 TMR1_CH4 顶点触发
+ *   - 注入序列 (preempt): 3 通道 [SOA, SOB, SOC], 由 TMR1_CH4 比较事件触发
  *   - 普通序列 (ordinary): 1 通道 [VBUS], 软件触发读取
  *   - ADC_CLK = 180MHz / 6 = 30MHz, 12-bit, 采样时间 1.5 cycle
  *
