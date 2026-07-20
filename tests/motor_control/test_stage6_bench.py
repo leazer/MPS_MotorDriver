@@ -20,6 +20,20 @@ class FakeSerial:
         self.closed = True
 
 
+class ByteSerial:
+    def __init__(self, payload):
+        self.payload = bytearray(payload)
+
+    @property
+    def in_waiting(self):
+        return len(self.payload)
+
+    def read(self, count):
+        data = bytes(self.payload[:count])
+        del self.payload[:count]
+        return data
+
+
 def test_parse_compact_speed_status():
     text = (
         "spdstat active=1 target=6283 cmd=6283 meas=6201 iqref=84 "
@@ -39,6 +53,34 @@ def test_parse_compact_speed_status():
         "fault": 0,
     }
     assert BENCH.parse_speed_status("spdstat incomplete") is None
+
+
+def test_serial_decode_drops_corrupt_bytes_without_console_replacement_chars():
+    ser = ByteSerial(
+        b"\xffspdstat active=1 target=1 cmd=1 meas=1 iqref=0 id=0 iq=0 "
+        b"invalid=0 streak=0 freeze=0 fault=0x00000000\r\nmsh >"
+    )
+    text = BENCH.read_until_prompt(ser, timeout=0.01)
+    assert "\ufffd" not in text
+    assert BENCH.parse_speed_status(text)["meas"] == 1
+
+
+def test_speed_status_retries_after_one_corrupt_reply():
+    replies = iter(
+        (
+            "mc_speY5",
+            "spdstat active=1 target=1 cmd=1 meas=1 iqref=0 id=0 iq=0 "
+            "invalid=0 streak=0 freeze=0 fault=0x00000000",
+        )
+    )
+    original = BENCH.send_cmd
+    BENCH.send_cmd = lambda *_args, **_kwargs: next(replies)
+    try:
+        snapshot = BENCH.read_speed_status(FakeSerial(), attempts=2)
+    finally:
+        BENCH.send_cmd = original
+    assert snapshot["active"] == 1
+    assert snapshot["meas"] == 1
 
 
 def test_shell_exports_compact_speed_status():
@@ -106,6 +148,8 @@ def test_main_stops_and_closes_after_failure():
 
 if __name__ == "__main__":
     test_parse_compact_speed_status()
+    test_serial_decode_drops_corrupt_bytes_without_console_replacement_chars()
+    test_speed_status_retries_after_one_corrupt_reply()
     test_shell_exports_compact_speed_status()
     test_final_safe_state_is_queried_and_asserted()
     test_main_stops_and_closes_after_failure()

@@ -43,7 +43,10 @@ def read_until_prompt(ser, timeout=2.0):
                 break
         else:
             time.sleep(0.002)
-    return data.decode("ascii", errors="replace")
+    # Motor commutation can inject an occasional corrupt UART byte.  The shell
+    # protocol is ASCII, so dropping non-ASCII bytes preserves parseable fields
+    # and avoids U+FFFD failing on Windows' default GBK console encoding.
+    return data.decode("ascii", errors="ignore")
 
 
 def send_cmd(ser, cmd, timeout=2.0):
@@ -64,6 +67,18 @@ def parse_speed_status(text):
         "invalid", "streak", "freeze", "fault",
     )
     return dict(zip(keys, values))
+
+
+def read_speed_status(ser, attempts=5):
+    """Read one complete compact status, tolerating isolated UART corruption."""
+    last_text = ""
+    for _ in range(attempts):
+        last_text = send_cmd(ser, "mc_speed_status", timeout=1.0)
+        snapshot = parse_speed_status(last_text)
+        if snapshot is not None:
+            return snapshot
+    safe_text = last_text.encode("ascii", errors="backslashreplace").decode("ascii")
+    raise AssertionError(f"no valid speed status after {attempts} attempts: {safe_text!r}")
 
 
 def prepare_bench(ser):
@@ -123,9 +138,7 @@ def run_target(ser, rpm_elec, duration_s=RUN_DURATION_S):
     samples = []
     while time.monotonic() - started < duration_s:
         cycle = time.monotonic()
-        text = send_cmd(ser, "mc_speed_status", timeout=1.0)
-        snapshot = parse_speed_status(text)
-        assert snapshot is not None, text
+        snapshot = read_speed_status(ser)
         assert snapshot["active"] == 1, snapshot
         assert snapshot["fault"] == 0, snapshot
         assert snapshot["streak"] == 0, snapshot
@@ -145,15 +158,14 @@ def verify_final_safe_state(ser):
     state = send_cmd(ser, "mc_state")
     fault = send_cmd(ser, "fault")
     pwm = send_cmd(ser, "pwm_info")
-    status_text = send_cmd(ser, "mc_speed_status")
-    status = parse_speed_status(status_text)
+    status = read_speed_status(ser)
     assert re.search(r"state\s*:\s*0\b", state), state
     assert re.search(r"fault\s*=\s*0x0+\b", fault), fault
     duties = re.search(r"CCR1/2/3\s*:\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)", pwm)
     assert duties and tuple(map(int, duties.groups())) == (SAFE_DUTY_TICKS,) * 3, pwm
     assert re.search(rf"CCR4\s*:\s*{EXPECTED_SAMPLE_TICK}\b", pwm), pwm
     assert re.search(r"EN\(PB10\)\s*:\s*0\b", pwm), pwm
-    assert status is not None and status["active"] == 0 and status["fault"] == 0, status_text
+    assert status["active"] == 0 and status["fault"] == 0, status
     return (
         "FINAL SAFE: state=DISABLED fault=0x00000000 en=0 "
         "ccr=2812/2812/2812 tick=5264 speed_active=0"
@@ -199,7 +211,8 @@ def main(argv=None):
         log.append(final)
         status_code = 0 if performance_ok else 2
     except Exception as exc:
-        message = f"FAIL: {type(exc).__name__}: {exc}"
+        detail = str(exc).encode("ascii", errors="backslashreplace").decode("ascii")
+        message = f"FAIL: {type(exc).__name__}: {detail}"
         print(message, flush=True)
         log.append(message)
     finally:
