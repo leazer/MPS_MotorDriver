@@ -30,7 +30,7 @@
 
 **Interfaces:**
 - Consumes: existing `foc_core`, encoder snapshot, ISR debug globals, and `debug.lksscope`.
-- Produces: regression gates for `foc_inv_clarke`, `raw_elec_mrad`, phase-voltage publication, and required XML variables.
+- Produces: regression gates for `foc_inv_clarke`, `raw_elec_mrad`, phase-voltage publication, and the 11 required XML curves.
 
 - [ ] **Step 1: Add inverse-Clarke assertions**
 
@@ -185,9 +185,8 @@ For both worktrees run `git diff --check`, focused host tests, all Python static
 
 - [ ] **Step 2: Review requirement coverage**
 
-Check all 13 requested curves, the common numeric variables, V1/V2 mappings, units, pre/post calibration semantics, and current-loop voltage semantics against the approved design.
+Check all 11 requested curves, the common numeric variables, V1/V2 mappings, units, pre/post calibration semantics, and current-loop voltage semantics against the approved design.
 
 - [ ] **Step 3: Commit intentionally**
 
 Commit V2 implementation/tests/config as focused commits and port them to V1. Do not merge either branch into `main` or `hw/v2-coaxial-encoder` in this task.
-

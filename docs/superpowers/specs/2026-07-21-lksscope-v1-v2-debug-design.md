@@ -58,7 +58,6 @@
 
 1. `foc_inv_clarke()` 主机测试先因接口缺失而失败，再在实现后覆盖 α 轴、β 轴和三相和为零。
 2. 编码器静态测试先因 `raw_elec_mrad` 缺失而失败，再验证 raw/corrected 两条计算路径。
-3. LKS Scope 静态测试解析 XML，验证必需曲线、数值变量、COM9、10ms 采样及相对 AXF 路径。
+3. LKS Scope 静态测试解析 XML，验证 11 条必需曲线、数值变量、COM9、10ms 采样及相对 AXF 路径。
 4. V2、V1 分别完成现有静态测试、聚焦主机测试和 Keil clean build。
 5. `fromelf` 校验所有曲线及数值变量均可从各自 AXF 解析，并核对两份地址表。
-
