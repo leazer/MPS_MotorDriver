@@ -39,6 +39,8 @@ extern "C" {
 
 /* ===== 电机参数 (spec §4.5.1) ===== */
 #define MOTOR_POLE_PAIRS                7u    /* 2808 BLDC 默认, 实测后修正 */
+/* V2 台架实测: 正电角度斜坡时 MA600A raw 递减, 控制坐标需反向归一化. */
+#define MOTOR_ENCODER_DIRECTION         (-1)
 
 /* ===== CAN 协议 (spec §5.1) ===== */
 #define MOTOR_NODE_ID                   0x01u

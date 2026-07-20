@@ -3,6 +3,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "application" / "motor_control" / "encoder_service.h"
 SOURCE = ROOT / "application" / "motor_control" / "encoder_service.c"
+PARAMS = ROOT / "application" / "motor_control" / "motor_params.h"
 TRACKER_HEADER = ROOT / "application" / "motor_control" / "encoder_tracker.h"
 TRACKER_SOURCE = ROOT / "application" / "motor_control" / "encoder_tracker.c"
 ACQ_TIMER_HEADER = ROOT / "platform" / "at32m412" / "encoder_acq_timer_at32m412.h"
@@ -44,6 +45,15 @@ def test_snapshot_exposes_raw_and_calibrated_electrical_angles():
     assert "int32_t  raw_elec_mrad;" in header
     assert "encoder_elec_mrad_from_position(raw)" in source
     assert "encoder_elec_mrad_from_position(corrected)" in source
+
+
+def test_control_angle_and_speed_share_encoder_direction():
+    params = read(PARAMS)
+    source = read(SOURCE)
+    assert "#define MOTOR_ENCODER_DIRECTION         (-1)" in params
+    assert "s_zero_raw - position" in source
+    assert "position - s_zero_raw" in source
+    assert "mech_speed *= (int32_t)MOTOR_ENCODER_DIRECTION" in source
 
 
 def test_encoder_service_source_is_in_build():
@@ -187,6 +197,7 @@ def test_enc_status_polls_once_when_motor_is_idle():
 if __name__ == "__main__":
     test_encoder_service_public_api_exists()
     test_snapshot_exposes_raw_and_calibrated_electrical_angles()
+    test_control_angle_and_speed_share_encoder_direction()
     test_encoder_service_source_is_in_build()
     test_encoder_service_source_is_in_keil_project()
     test_encoder_service_does_not_use_rtthread_api_in_isr_update()

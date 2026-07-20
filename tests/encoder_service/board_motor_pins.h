@@ -1,0 +1,6 @@
+#ifndef TEST_BOARD_MOTOR_PINS_H
+#define TEST_BOARD_MOTOR_PINS_H
+
+#define PWM_FREQUENCY_HZ 16000u
+
+#endif

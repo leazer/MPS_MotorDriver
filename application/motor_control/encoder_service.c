@@ -64,7 +64,11 @@ static int32_t encoder_elec_mrad_from_position(uint16_t position)
     uint16_t mech_diff;
     float theta;
 
-    mech_diff = (uint16_t)(position - s_zero_raw);
+    if (MOTOR_ENCODER_DIRECTION < 0) {
+        mech_diff = (uint16_t)(s_zero_raw - position);
+    } else {
+        mech_diff = (uint16_t)(position - s_zero_raw);
+    }
     theta = ((float)mech_diff * (float)MOTOR_POLE_PAIRS * TWO_PI_F) / 65536.0f;
     while (theta >= TWO_PI_F) {
         theta -= TWO_PI_F;
@@ -104,6 +108,7 @@ static void encoder_update_window_speed(int32_t corrected_unwrapped, uint32_t ac
                                     (int64_t)ENCODER_ACQ_TIMER_HZ *
                                     (int64_t)RAW16_TO_MRAD_NUM) /
                                    ((int64_t)65536 * (int64_t)sample_span));
+            mech_speed *= (int32_t)MOTOR_ENCODER_DIRECTION;
             s_snapshot.speed_mech_mrad_s = mech_speed;
             s_snapshot.speed_elec_mrad_s = mech_speed * (int32_t)MOTOR_POLE_PAIRS;
         }
