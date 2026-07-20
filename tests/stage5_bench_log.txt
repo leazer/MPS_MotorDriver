@@ -1,12 +1,13 @@
 === Section A: precondition ===
 [A] PASS: DISABLED, fault clear, mc_cal done, mc_cur exists
-PASS -50mA: id=-5mA iq=-50mA mask=0x07 recon=1
-PASS +50mA: id=-1mA iq=46mA mask=0x07 recon=2
-PASS -100mA: id=0mA iq=-99mA mask=0x07 recon=1
-PASS +100mA: id=0mA iq=100mA mask=0x07 recon=3
-PASS -200mA: id=0mA iq=-200mA mask=0x07 recon=2
-PASS +200mA: id=1mA iq=201mA mask=0x07 recon=1
-PASS -500mA: id=0mA iq=-500mA mask=0x07 recon=2
-PASS +500mA: id=0mA iq=498mA mask=0x07 recon=1
+PASS -50mA: id=0mA iq=-52mA mask=0x07 recon=2
+PASS +50mA: id=1mA iq=51mA mask=0x07 recon=1
+PASS -100mA: id=0mA iq=-98mA mask=0x07 recon=2
+PASS +100mA: id=0mA iq=99mA mask=0x07 recon=1
+PASS -200mA: id=0mA iq=-198mA mask=0x07 recon=2
+PASS +200mA: id=0mA iq=198mA mask=0x07 recon=1
+PASS -500mA: id=0mA iq=-499mA mask=0x07 recon=2
+PASS +500mA: id=0mA iq=500mA mask=0x07 recon=1
+FINAL SAFE: state=DISABLED fault=0x00000000 en=0 ccr=2812/2812/2812 tick=5264 mask=0x07 invalid_total=0 invalid_consecutive=0 pi_freeze=0
 
 === ALL PASS ===
