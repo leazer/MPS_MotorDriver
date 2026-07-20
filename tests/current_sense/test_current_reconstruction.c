@@ -68,17 +68,36 @@ static void test_exactly_two_valid_reconstructs_each_missing_phase(void)
                                99.0f, 0.20f, -0.05f, 180u, &r);
     assert(r.frame_valid && r.valid_mask == (CURRENT_PHASE_B_MASK | CURRENT_PHASE_C_MASK));
     assert(r.reconstructed_phase == CURRENT_RECON_PHASE_A);
-    assert_close(r.ia, -0.15f);
+    assert_close(r.ia, 0.15f);
 
     current_reconstruction_run(&(current_sample_plan_t){3000u, 5200u, 3200u, 5264u},
                                0.20f, 99.0f, -0.05f, 180u, &r);
     assert(r.reconstructed_phase == CURRENT_RECON_PHASE_B);
-    assert_close(r.ib, -0.15f);
+    assert_close(r.ib, 0.15f);
 
     current_reconstruction_run(&(current_sample_plan_t){3000u, 3200u, 5200u, 5264u},
                                0.20f, -0.05f, 99.0f, 180u, &r);
     assert(r.reconstructed_phase == CURRENT_RECON_PHASE_C);
-    assert_close(r.ic, -0.15f);
+    assert_close(r.ic, 0.15f);
+}
+
+static void test_low_side_samples_are_normalized_to_foc_phase_polarity(void)
+{
+    current_reconstruction_result_t r;
+    current_sample_plan_t p = plan(3000u, 3200u, 3400u);
+
+    current_reconstruction_run(&p, -0.30f, 0.10f, 99.0f, 180u, &r);
+
+    assert(r.frame_valid);
+    assert(r.valid_mask == CURRENT_PHASE_ALL_MASK);
+    assert(r.reconstructed_phase == CURRENT_RECON_PHASE_C);
+    assert_close(r.raw_ia, -0.30f);
+    assert_close(r.raw_ib, 0.10f);
+    assert_close(r.raw_ic, 99.0f);
+    assert_close(r.ia, 0.30f);
+    assert_close(r.ib, -0.10f);
+    assert_close(r.ic, -0.20f);
+    assert_close(r.ia + r.ib + r.ic, 0.0f);
 }
 
 static void test_all_valid_drops_smallest_margin_for_all_six_orders(void)
@@ -146,6 +165,7 @@ int main(void)
 {
     test_tracker_pairs_previous_active_cycle();
     test_rearm_uses_values_that_loaded_while_irq_was_off();
+    test_low_side_samples_are_normalized_to_foc_phase_polarity();
     test_exactly_two_valid_reconstructs_each_missing_phase();
     test_all_valid_drops_smallest_margin_for_all_six_orders();
     test_fewer_than_two_valid_is_invalid();

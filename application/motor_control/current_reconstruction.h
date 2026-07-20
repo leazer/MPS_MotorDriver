@@ -30,12 +30,12 @@ typedef struct {
 } current_sample_tracker_t;
 
 typedef struct {
-    float raw_ia;
-    float raw_ib;
-    float raw_ic;
-    float ia;
-    float ib;
-    float ic;
+    float raw_ia;  /* calibrated SOA value, low-side device-current sign */
+    float raw_ib;  /* calibrated SOB value, low-side device-current sign */
+    float raw_ic;  /* calibrated SOC value, low-side device-current sign */
+    float ia;      /* corrected motor phase A current, FOC sign convention */
+    float ib;      /* corrected motor phase B current, FOC sign convention */
+    float ic;      /* corrected motor phase C current, FOC sign convention */
     uint16_t margin_a;
     uint16_t margin_b;
     uint16_t margin_c;

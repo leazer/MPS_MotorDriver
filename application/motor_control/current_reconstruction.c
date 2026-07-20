@@ -102,9 +102,9 @@ void current_reconstruction_run(const current_sample_plan_t *plan,
         }
     }
 
-    out->ia = raw_ia;
-    out->ib = raw_ib;
-    out->ic = raw_ic;
+    out->ia = -raw_ia;
+    out->ib = -raw_ib;
+    out->ic = -raw_ic;
     switch (out->reconstructed_phase) {
     case CURRENT_RECON_PHASE_A:
         out->ia = -(out->ib + out->ic);
