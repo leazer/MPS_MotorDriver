@@ -123,7 +123,7 @@ Run the focused commands from Task 1. Expected: host output reports all FOC asse
 
 **Interfaces:**
 - Consumes: V2 AXF symbols and the main checkout's current XML params/layout.
-- Produces: LKS Scope v1.4.8 XML with one numeric form and one four-subplot curve form.
+- Produces: LKS Scope v1.4.8 XML with one numeric form and one five-subplot curve form.
 
 - [ ] **Step 1: Build V2 and extract fresh symbols**
 

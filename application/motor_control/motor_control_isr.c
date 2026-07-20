@@ -183,14 +183,19 @@ static void current_debug_accumulate_average(int32_t id_ma, int32_t iq_ma)
     }
 }
 
+static void current_debug_clear_phase_voltage(void)
+{
+    s_dbg_uu_mv = 0;
+    s_dbg_uv_mv = 0;
+    s_dbg_uw_mv = 0;
+}
+
 static void current_sampling_runtime_reset(void)
 {
     current_sample_guard_reset_consecutive(&s_sample_guard);
     s_held_vd_ref = 0.0f;
     s_held_vq_ref = 0.0f;
-    s_dbg_uu_mv = 0;
-    s_dbg_uv_mv = 0;
-    s_dbg_uw_mv = 0;
+    current_debug_clear_phase_voltage();
     s_imbal_consec = 0u;
 }
 
@@ -382,6 +387,7 @@ void motor_control_isr_tick(void)
      * 仅致命故障触发关断; FAULT_CAL_INVALID 是告警, 不阻止 (spec §4.7.3) */
     if (mc->state == MOTOR_CONTROL_STATE_FAULT || fault_manager_any_fatal()) {
         s_dbg_fault_hits++;
+        current_debug_clear_phase_voltage();
         motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
         motor_pwm_at32m412_disable_output();
         return;
@@ -390,6 +396,7 @@ void motor_control_isr_tick(void)
     /* DISABLED: 50% 三相同电位, 不出力 (但 ISR 仍运行, 供调试观察) */
     if (mc->state != MOTOR_CONTROL_STATE_ENABLED) {
         s_dbg_disabled_hits++;
+        current_debug_clear_phase_voltage();
         motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
         return;
     }
@@ -492,6 +499,7 @@ void motor_control_isr_tick(void)
             float vd_ref, vq_ref;
 
             if (!s_cur_active) {
+                current_debug_clear_phase_voltage();
                 motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
                 return;
             }
@@ -544,6 +552,7 @@ void motor_control_isr_tick(void)
             float iq_ref;
 
             if (!s_spd_active) {
+                current_debug_clear_phase_voltage();
                 motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
                 return;
             }
@@ -582,10 +591,12 @@ void motor_control_isr_tick(void)
 
         case MOTOR_CONTROL_MODE_POSITION:
             /* Stage 7+ 实现, 暂输出 50% */
+            current_debug_clear_phase_voltage();
             motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
             break;
 
         default:
+            current_debug_clear_phase_voltage();
             motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
             break;
     }

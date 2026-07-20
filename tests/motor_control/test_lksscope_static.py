@@ -88,11 +88,23 @@ def test_connection_and_map_settings_are_preserved():
 
 def test_requested_signals_are_curves():
     curve_form = form(load_scope(), "8")
-    names = [item.attrib["name"] for item in curve_form.findall("var")]
+    variables = {item.attrib["name"]: item.attrib["subPlot"]
+                 for item in curve_form.findall("var")}
+    names = list(variables)
     assert set(names) == REQUIRED_CURVES
     assert len(names) == len(set(names))
     assert curve_form.attrib["subMode"] == "1"
-    assert {item.attrib["subPlot"] for item in curve_form.findall("var")} == {"0", "1", "2", "3"}
+    assert variables["s_snapshot.raw16"] == "0"
+    assert variables["s_snapshot.raw_elec_mrad"] == "1"
+    assert variables["s_snapshot.elec_mrad"] == "1"
+    assert variables["s_dbg_id_ma"] == "2"
+    assert variables["s_dbg_iq_ma"] == "2"
+    assert variables["s_sampling_debug_snapshot.ia_ma"] == "3"
+    assert variables["s_sampling_debug_snapshot.ib_ma"] == "3"
+    assert variables["s_sampling_debug_snapshot.ic_ma"] == "3"
+    assert variables["s_dbg_uu_mv"] == "4"
+    assert variables["s_dbg_uv_mv"] == "4"
+    assert variables["s_dbg_uw_mv"] == "4"
 
 
 def test_common_monitoring_variables_are_in_numeric_list():
@@ -110,9 +122,16 @@ def test_current_loop_phase_voltage_debug_symbols_exist():
         assert token in source
 
 
+def test_current_loop_phase_voltage_is_cleared_outside_closed_loop():
+    source = ISR_SOURCE.read_text(encoding="utf-8")
+    assert "static void current_debug_clear_phase_voltage(void)" in source
+    assert source.count("current_debug_clear_phase_voltage();") >= 5
+
+
 if __name__ == "__main__":
     test_connection_and_map_settings_are_preserved()
     test_requested_signals_are_curves()
     test_common_monitoring_variables_are_in_numeric_list()
     test_current_loop_phase_voltage_debug_symbols_exist()
+    test_current_loop_phase_voltage_is_cleared_outside_closed_loop()
     print("lksscope static tests passed")

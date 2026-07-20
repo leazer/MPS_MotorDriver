@@ -110,16 +110,16 @@
         </form>
         <form xTag="0" min="-500" page="0" type="8" max="500" trigValue="0" floating="0" subMode="1" title="曲线0" autoRange="1" filterType="1" visible="1" refName="" refValue="0" refType="0" xCount="1967.95" trigType="0" scatterStyle="1" scrollType="0" lineStyle="1" trigName="">
             <var name="s_snapshot.raw16" color="#ff0000" desc="编码器原始值" subPlot="0"/>
-            <var name="s_snapshot.raw_elec_mrad" color="#ff8000" desc="标定前电角度(mrad)" subPlot="0"/>
-            <var name="s_snapshot.elec_mrad" color="#00c060" desc="标定后电角度(mrad)" subPlot="0"/>
-            <var name="s_dbg_id_ma" color="#00ffff" desc="Id(mA)" subPlot="1"/>
-            <var name="s_dbg_iq_ma" color="#ff00ff" desc="Iq(mA)" subPlot="1"/>
-            <var name="s_sampling_debug_snapshot.ia_ma" color="#ff0000" desc="Iu(mA)" subPlot="2"/>
-            <var name="s_sampling_debug_snapshot.ib_ma" color="#00c060" desc="Iv(mA)" subPlot="2"/>
-            <var name="s_sampling_debug_snapshot.ic_ma" color="#0080ff" desc="Iw(mA)" subPlot="2"/>
-            <var name="s_dbg_uu_mv" color="#ff8000" desc="Uu(mV)" subPlot="3"/>
-            <var name="s_dbg_uv_mv" color="#a000ff" desc="Uv(mV)" subPlot="3"/>
-            <var name="s_dbg_uw_mv" color="#00c0c0" desc="Uw(mV)" subPlot="3"/>
+            <var name="s_snapshot.raw_elec_mrad" color="#ff8000" desc="标定前电角度(mrad)" subPlot="1"/>
+            <var name="s_snapshot.elec_mrad" color="#00c060" desc="标定后电角度(mrad)" subPlot="1"/>
+            <var name="s_dbg_id_ma" color="#00ffff" desc="Id(mA)" subPlot="2"/>
+            <var name="s_dbg_iq_ma" color="#ff00ff" desc="Iq(mA)" subPlot="2"/>
+            <var name="s_sampling_debug_snapshot.ia_ma" color="#ff0000" desc="Iu(mA)" subPlot="3"/>
+            <var name="s_sampling_debug_snapshot.ib_ma" color="#00c060" desc="Iv(mA)" subPlot="3"/>
+            <var name="s_sampling_debug_snapshot.ic_ma" color="#0080ff" desc="Iw(mA)" subPlot="3"/>
+            <var name="s_dbg_uu_mv" color="#ff8000" desc="Uu(mV)" subPlot="4"/>
+            <var name="s_dbg_uv_mv" color="#a000ff" desc="Uv(mV)" subPlot="4"/>
+            <var name="s_dbg_uw_mv" color="#00c0c0" desc="Uw(mV)" subPlot="4"/>
         </form>
     </forms>
 </lksscope>
