@@ -1,0 +1,5 @@
++10rpm_e: target=1047 steady=2009 err=91.88% peak=191.9% rise90=0.568s peak_iqref=76mA peak_id=4mA invalid_delta=0 freeze_delta=0 fault=0x00000000 direction_ok=1
++60rpm_e: target=6283 steady=6202 err=1.29% peak=144.2% rise90=0.469s peak_iqref=97mA peak_id=16mA invalid_delta=0 freeze_delta=0 fault=0x00000000 direction_ok=1
+-60rpm_e: target=-6283 steady=-6034 err=3.96% peak=144.2% rise90=0.418s peak_iqref=91mA peak_id=17mA invalid_delta=0 freeze_delta=0 fault=0x00000000 direction_ok=1
++200rpm_e: target=20943 steady=20300 err=3.07% peak=112.1% rise90=1.329s peak_iqref=100mA peak_id=23mA invalid_delta=0 freeze_delta=0 fault=0x00000000 direction_ok=1
+FINAL SAFE: state=DISABLED fault=0x00000000 en=0 ccr=2812/2812/2812 tick=5264 speed_active=0
