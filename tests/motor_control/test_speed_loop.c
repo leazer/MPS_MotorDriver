@@ -14,9 +14,9 @@
 #define SPEED_DT_S                  (ISR_DT_S * (float)SPEED_LOOP_DIV)
 #define PID_SPEED_KP                0.01f
 #define PID_SPEED_KI                0.5f
-#define IQ_MAX_A                    1.5f
-#define PID_SPEED_INTEGRAL_LIMIT    IQ_MAX_A
-#define PID_SPEED_OUT_LIMIT         IQ_MAX_A
+#define SPEED_IQ_LIMIT_A            0.5f
+#define PID_SPEED_INTEGRAL_LIMIT    SPEED_IQ_LIMIT_A
+#define PID_SPEED_OUT_LIMIT         SPEED_IQ_LIMIT_A
 #define SPEED_RAMP_RAD_S2           600.0f
 
 typedef struct {
@@ -108,9 +108,24 @@ static void test_output_clamps_to_iq_limit(void)
     for (i = 0; i < 20000; i++) {
         iq = speed_loop_run_replica(0.0f);
     }
-    assert(fabsf(iq - IQ_MAX_A) < 1e-5f);
+    assert(fabsf(iq - SPEED_IQ_LIMIT_A) < 1e-5f);
     assert(fabsf(s_pid.integral) <= PID_SPEED_INTEGRAL_LIMIT + 1e-5f);
     printf("[PASS] output clamps to iq limit: %.4f\n", iq);
+}
+
+static void test_negative_output_clamps_to_iq_limit(void)
+{
+    float iq;
+    int i;
+    speed_loop_init_replica();
+    speed_loop_set_target_replica(-10000.0f);
+    iq = 0.0f;
+    for (i = 0; i < 20000; i++) {
+        iq = speed_loop_run_replica(0.0f);
+    }
+    assert(fabsf(iq + SPEED_IQ_LIMIT_A) < 1e-5f);
+    assert(fabsf(s_pid.integral) <= PID_SPEED_INTEGRAL_LIMIT + 1e-5f);
+    printf("[PASS] negative output clamps to iq limit: %.4f\n", iq);
 }
 
 static void test_target_ramp_limits_first_step(void)
@@ -144,8 +159,9 @@ int main(void)
     test_positive_speed_error_outputs_positive_iq();
     test_negative_speed_error_outputs_negative_iq();
     test_output_clamps_to_iq_limit();
+    test_negative_output_clamps_to_iq_limit();
     test_target_ramp_limits_first_step();
     test_zero_target_resets_command_toward_zero();
-    printf("\n5 speed_loop tests passed\n");
+    printf("\n6 speed_loop tests passed\n");
     return 0;
 }

@@ -103,8 +103,9 @@ extern "C" {
 /* 速度环 */
 #define PID_SPEED_KP                    0.01f
 #define PID_SPEED_KI                    0.5f
-#define PID_SPEED_INTEGRAL_LIMIT        IQ_MAX_A
-#define PID_SPEED_OUT_LIMIT             IQ_MAX_A
+#define SPEED_IQ_LIMIT_A                0.5f
+#define PID_SPEED_INTEGRAL_LIMIT        SPEED_IQ_LIMIT_A
+#define PID_SPEED_OUT_LIMIT             SPEED_IQ_LIMIT_A
 #define RPM_MAX                         3000
 
 /* 位置环 */
