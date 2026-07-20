@@ -56,6 +56,11 @@ def test_control_angle_and_speed_share_encoder_direction():
     assert "mech_speed *= (int32_t)MOTOR_ENCODER_DIRECTION" in source
 
 
+def test_speed_window_limits_feedback_delay_to_4_ms():
+    source = read(SOURCE)
+    assert "#define ENC_SPEED_WINDOW_SAMPLES    16u" in source
+
+
 def test_encoder_service_source_is_in_build():
     cmake = read(CMAKE)
     assert "application/motor_control/encoder_service.c" in cmake
@@ -198,6 +203,7 @@ if __name__ == "__main__":
     test_encoder_service_public_api_exists()
     test_snapshot_exposes_raw_and_calibrated_electrical_angles()
     test_control_angle_and_speed_share_encoder_direction()
+    test_speed_window_limits_feedback_delay_to_4_ms()
     test_encoder_service_source_is_in_build()
     test_encoder_service_source_is_in_keil_project()
     test_encoder_service_does_not_use_rtthread_api_in_isr_update()

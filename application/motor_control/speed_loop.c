@@ -11,7 +11,7 @@
 
 #define SPEED_LOOP_DIV          16u
 #define SPEED_LOOP_DT_S         ((float)SPEED_LOOP_DIV / (float)PWM_FREQUENCY_HZ)
-#define SPEED_RAMP_RAD_S2       600.0f
+#define SPEED_RAMP_RAD_S2       50.0f
 
 static pid_f32_t s_pid;
 static volatile float s_target_rad_s;
@@ -66,6 +66,8 @@ float speed_loop_run(float measured_rad_s)
     float max_step;
     float delta;
     float error;
+    float feedforward;
+    float kp;
     float out;
 
     s_measured_rad_s = measured_rad_s;
@@ -84,7 +86,21 @@ float speed_loop_run(float measured_rad_s)
     s_pid.integral = speed_loop_clamp(s_pid.integral,
                                       -s_pid.integral_limit,
                                       s_pid.integral_limit);
-    out = s_pid.kp * error + s_pid.integral;
+    feedforward = 0.0f;
+    if (s_command_rad_s > 0.0f) {
+        feedforward = SPEED_IQ_FRICTION_A;
+    } else if (s_command_rad_s < 0.0f) {
+        feedforward = -SPEED_IQ_FRICTION_A;
+    }
+    kp = s_pid.kp;
+    if ((s_command_rad_s * error) < 0.0f) {
+        kp = PID_SPEED_KP_BRAKE;
+    }
+    out = kp * error + s_pid.integral + feedforward;
+    if ((s_command_rad_s * error) < 0.0f &&
+        (out * s_command_rad_s) > 0.0f) {
+        out = 0.0f;
+    }
     s_iq_ref_A = speed_loop_clamp(out, -s_pid.out_limit, s_pid.out_limit);
     return s_iq_ref_A;
 }

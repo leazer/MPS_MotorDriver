@@ -102,7 +102,9 @@ extern "C" {
 
 /* 速度环 */
 #define PID_SPEED_KP                    0.01f
-#define PID_SPEED_KI                    0.5f
+#define PID_SPEED_KP_BRAKE              0.04f
+#define PID_SPEED_KI                    0.01f
+#define SPEED_IQ_FRICTION_A             0.02f
 #define SPEED_IQ_LIMIT_A                0.5f
 #define PID_SPEED_INTEGRAL_LIMIT        SPEED_IQ_LIMIT_A
 #define PID_SPEED_OUT_LIMIT             SPEED_IQ_LIMIT_A
