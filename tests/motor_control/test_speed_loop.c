@@ -213,6 +213,6 @@ int main(void)
     test_zero_target_resets_command_toward_zero();
     test_friction_feedforward_is_signed_and_zero_at_rest();
     test_overspeed_never_commands_more_acceleration();
-    printf("\n6 speed_loop tests passed\n");
+    printf("\n8 speed_loop tests passed\n");
     return 0;
 }
