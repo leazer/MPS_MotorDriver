@@ -16,6 +16,7 @@ typedef struct {
     int16_t  raw_delta;
     int16_t  corrected_delta;
     int32_t  mech_mdeg;
+    int32_t  raw_elec_mrad;
     int32_t  elec_mrad;
     int32_t  speed_mech_mrad_s;
     int32_t  speed_elec_mrad_s;

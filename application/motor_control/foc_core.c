@@ -137,6 +137,14 @@ void foc_ipark(float vd, float vq, float theta_e, float *v_alpha, float *v_beta)
     *v_beta  = vd * s + vq * c;
 }
 
+void foc_inv_clarke(float v_alpha, float v_beta,
+                    float *vu, float *vv, float *vw)
+{
+    *vu = v_alpha;
+    *vv = -0.5f * v_alpha + 0.86602540f * v_beta;
+    *vw = -0.5f * v_alpha - 0.86602540f * v_beta;
+}
+
 /* ============================================================
  * SVPWM (三相高边特化, spec §4.2)
  *
@@ -189,9 +197,7 @@ void foc_svpwm_3phase_high_side(float v_alpha, float v_beta, float vbus,
      *    Vb = -0.5*Valpha + (sqrt(3)/2)*Vbeta
      *    Vc = -0.5*Valpha - (sqrt(3)/2)*Vbeta
      */
-    va = v_alpha;
-    vb = -0.5f * v_alpha + 0.86602540f * v_beta;   /* sqrt(3)/2 = 0.8660254 */
-    vc = -0.5f * v_alpha - 0.86602540f * v_beta;
+    foc_inv_clarke(v_alpha, v_beta, &va, &vb, &vc);
 
     /* 2. min-max 零序注入: Vcm = -(Vmax+Vmin)/2, 中心化到 [-Vbus/2, Vbus/2] */
     vmax = va;

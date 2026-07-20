@@ -46,7 +46,7 @@ foc_inv_clarke(0.0f, 1.0f, &vu, &vv, &vw);
 assert(approx_eq(vu + vv + vw, 0.0f, 1e-4f));
 ```
 
-Add a test-only `board_motor_pins.h` defining `TMR1_ARR 7499u` so host GCC can compile the complete `foc_core.c`.
+Add a test-only `board_motor_pins.h` defining `TMR1_ARR 5624u` and the matching `PWM_DUTY_MAX` expression so host GCC can compile the complete `foc_core.c`.
 
 - [ ] **Step 2: Add encoder and scope static contracts**
 

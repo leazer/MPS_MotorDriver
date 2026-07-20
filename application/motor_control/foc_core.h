@@ -17,6 +17,10 @@ void foc_park(float i_alpha, float i_beta, float theta_e, float *id, float *iq);
 /* 逆 Park 变换: d/q -> alpha/beta */
 void foc_ipark(float vd, float vq, float theta_e, float *v_alpha, float *v_beta);
 
+/* 逆 Clarke 变换: alpha/beta -> 三相零和电压 */
+void foc_inv_clarke(float v_alpha, float v_beta,
+                    float *vu, float *vv, float *vw);
+
 /* SVPWM 7 段法, 三相高边特化 (spec §4.2)
  * v_alpha, v_beta: 电压分量 (V)
  * vbus: 母线电压 (V)

@@ -76,6 +76,9 @@ static volatile uint16_t s_enc_error_cnt;    /* 读取失败累计 */
 static volatile int32_t  s_dbg_theta_mrad;
 static volatile int32_t  s_dbg_v_alpha_mv;
 static volatile int32_t  s_dbg_v_beta_mv;
+static volatile int32_t  s_dbg_uu_mv;
+static volatile int32_t  s_dbg_uv_mv;
+static volatile int32_t  s_dbg_uw_mv;
 static volatile uint16_t s_dbg_ta;
 static volatile uint16_t s_dbg_tb;
 static volatile uint16_t s_dbg_tc;
@@ -185,7 +188,22 @@ static void current_sampling_runtime_reset(void)
     current_sample_guard_reset_consecutive(&s_sample_guard);
     s_held_vd_ref = 0.0f;
     s_held_vq_ref = 0.0f;
+    s_dbg_uu_mv = 0;
+    s_dbg_uv_mv = 0;
+    s_dbg_uw_mv = 0;
     s_imbal_consec = 0u;
+}
+
+static void current_debug_publish_phase_voltage(float v_alpha, float v_beta)
+{
+    float uu;
+    float uv;
+    float uw;
+
+    foc_inv_clarke(v_alpha, v_beta, &uu, &uv, &uw);
+    s_dbg_uu_mv = (int32_t)(uu * VOLTS_TO_MV_F);
+    s_dbg_uv_mv = (int32_t)(uv * VOLTS_TO_MV_F);
+    s_dbg_uw_mv = (int32_t)(uw * VOLTS_TO_MV_F);
 }
 
 static void current_sampling_debug_publish(const current_sampling_debug_snapshot_t *snapshot)
@@ -511,6 +529,7 @@ void motor_control_isr_tick(void)
             foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
             s_dbg_v_alpha_mv = (int32_t)(v_alpha * VOLTS_TO_MV_F);
             s_dbg_v_beta_mv  = (int32_t)(v_beta  * VOLTS_TO_MV_F);
+            current_debug_publish_phase_voltage(v_alpha, v_beta);
             foc_svpwm_3phase_high_side(v_alpha, v_beta, vbus, &ta, &tb, &tc);
             s_dbg_ta = ta; s_dbg_tb = tb; s_dbg_tc = tc;
             motor_pwm_at32m412_set_duty_ticks(ta, tb, tc);
@@ -554,6 +573,7 @@ void motor_control_isr_tick(void)
             foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
             s_dbg_v_alpha_mv = (int32_t)(v_alpha * VOLTS_TO_MV_F);
             s_dbg_v_beta_mv  = (int32_t)(v_beta  * VOLTS_TO_MV_F);
+            current_debug_publish_phase_voltage(v_alpha, v_beta);
             foc_svpwm_3phase_high_side(v_alpha, v_beta, vbus, &ta, &tb, &tc);
             s_dbg_ta = ta; s_dbg_tb = tb; s_dbg_tc = tc;
             motor_pwm_at32m412_set_duty_ticks(ta, tb, tc);
@@ -957,6 +977,9 @@ void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)
     dbg->theta_mrad     = s_dbg_theta_mrad;
     dbg->v_alpha_mv     = s_dbg_v_alpha_mv;
     dbg->v_beta_mv      = s_dbg_v_beta_mv;
+    dbg->uu_mv          = s_dbg_uu_mv;
+    dbg->uv_mv          = s_dbg_uv_mv;
+    dbg->uw_mv          = s_dbg_uw_mv;
     dbg->ta             = s_dbg_ta;
     dbg->tb             = s_dbg_tb;
     dbg->tc             = s_dbg_tc;

@@ -38,6 +38,14 @@ def test_encoder_service_public_api_exists():
         assert token in header
 
 
+def test_snapshot_exposes_raw_and_calibrated_electrical_angles():
+    header = read(HEADER)
+    source = read(SOURCE)
+    assert "int32_t  raw_elec_mrad;" in header
+    assert "encoder_elec_mrad_from_position(raw)" in source
+    assert "encoder_elec_mrad_from_position(corrected)" in source
+
+
 def test_encoder_service_source_is_in_build():
     cmake = read(CMAKE)
     assert "application/motor_control/encoder_service.c" in cmake
@@ -178,6 +186,7 @@ def test_enc_status_polls_once_when_motor_is_idle():
 
 if __name__ == "__main__":
     test_encoder_service_public_api_exists()
+    test_snapshot_exposes_raw_and_calibrated_electrical_angles()
     test_encoder_service_source_is_in_build()
     test_encoder_service_source_is_in_keil_project()
     test_encoder_service_does_not_use_rtthread_api_in_isr_update()

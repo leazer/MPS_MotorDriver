@@ -104,6 +104,9 @@ typedef struct {
     int32_t theta_mrad;     /* 当前电角度 (毫弧度, 0..6283) */
     int32_t v_alpha_mv;     /* IPark 输出 (毫伏) */
     int32_t v_beta_mv;
+    int32_t uu_mv;          /* 电流环三相电压指令 (毫伏, 零序注入前) */
+    int32_t uv_mv;
+    int32_t uw_mv;
     uint16_t ta;            /* SVPWM 输出 CCR */
     uint16_t tb;
     uint16_t tc;

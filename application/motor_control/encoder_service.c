@@ -59,14 +59,12 @@ static int32_t encoder_mech_mdeg_from_raw(uint16_t raw)
     return (int32_t)((uint32_t)raw * 360000u / 65536u);
 }
 
-static int32_t encoder_elec_mrad_from_raw(uint16_t raw)
+static int32_t encoder_elec_mrad_from_position(uint16_t position)
 {
-    uint16_t corrected;
     uint16_t mech_diff;
     float theta;
 
-    corrected = encoder_apply_calibration(raw);
-    mech_diff = (uint16_t)(corrected - s_zero_raw);
+    mech_diff = (uint16_t)(position - s_zero_raw);
     theta = ((float)mech_diff * (float)MOTOR_POLE_PAIRS * TWO_PI_F) / 65536.0f;
     while (theta >= TWO_PI_F) {
         theta -= TWO_PI_F;
@@ -152,7 +150,8 @@ static int encoder_accept_sample(uint16_t raw, int16_t speed, int16_t delta)
     s_snapshot.corrected_delta = corrected_delta;
     s_snapshot.speed_raw = speed;
     s_snapshot.mech_mdeg = encoder_mech_mdeg_from_raw(raw);
-    s_snapshot.elec_mrad = encoder_elec_mrad_from_raw(raw);
+    s_snapshot.raw_elec_mrad = encoder_elec_mrad_from_position(raw);
+    s_snapshot.elec_mrad = encoder_elec_mrad_from_position(corrected);
     s_snapshot.valid = 1u;
     s_snapshot.fresh = 1u;
     s_snapshot.spike_rejected = 0u;

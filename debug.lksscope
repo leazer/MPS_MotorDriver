@@ -19,11 +19,11 @@
         <param name="checkAxf" value="1"/>
     </params>
     <layouts>
-        <param name="geometry" value="AdnQywADAAD/////////+AAACgAAAAVwAAACzwAAAVMAAAcwAAAEGwAAAAACAAAACgAAAAAAAAAAFwAACf8AAAVv"/>
+        <param name="geometry" value="AdnQywADAAD/////////+AAACgAAAAVwAAACeQAAAZMAAAbaAAAEWwAAAAACAAAACgAAAAAAAAAAFwAACf8AAAVv"/>
         <param name="state" value="AAAA/wAAAAD9AAAAAgAAAAAAAAGJAAADf/wCAAAAAvsAAAAIepdT41v8gioBAAAAUgAAAcAAAAAAAAAAAPwAAAIWAAABuwAAAAAA////+gAAAAACAAAAAvsAAAAIW/xRZVPYkc8BAAAAAP////8AAAAAAAAAAPsAAAAKgepbmk5JU9iRzwEAAAAA/////wAAAAAAAAAAAAAAAQAABfMAAAN//AIAAAAH+wAAAAwAUgBUAFRUfU7kiEwAAAAAAP////8AAAAAAAAAAPsAAAAKAFIAVABUZXBjbgAAAAAA/////wAAAAAAAAAA+wAAAAZbxFtYVmgAAAAAAP////8AAAAAAAAAAPsAAAAIj9CITGXlX9cAAAAAAP////8AAAAAAAAAAPwAAABOAAADhQAAAAAA/////AEAAAAC+wAAAAZm8n6/ADABAAAByQAABAcAAAAAAAAAAPsAAAAGZXBQPAAwAQAABdQAAAGsAAAAAAAAAAD7AAAACGVwY25mPnk6AQAAAFIAAAN/AAAAAAAAAAD7AAAACHU1Zzpjp1I2AAAAAAD/////AAAArAD///8AAAoAAAAE8AAAAAQAAAAEAAAACAAAAAj8AAAAAQAAAAIAAAADAAAADgB0AG8AbwBsAEIAYQByAQAAAAD/////AAAAAAAAAAAAAAASAHQAbwBvAGwAQgBhAHIAXwAyAQAAAMT/////AAAAAAAAAAAAAAAWAHQAbwBvAGwAQgBhAHIATABvAGcAbwEAAAJG/////wAAAAAAAAAA"/>
     </layouts>
     <tabs curPage="0">
-        <tab title="标签页0" geometry="AdnQywADAAAAAAAAAAAAAAAAB2gAAATBAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAAAAAB2gAAATB" checked="1" state="AAAA/wAAAAD9AAAAAgAAAAEAAAXtAAAA1vwCAAAAA/sAAAAIj9CITGXlX9cAAAAAAP////8AAABdAP////sAAAAMAFIAVABUVH1O5IhMAAAAAAD/////AAAAwAD////7AAAACgBSAFQAVGVwY24AAAAAAP////8AAAEPAP///wAAAAMAAAdpAAAEwvwBAAAAAfwAAAAAAAAHaQAAAMoA/////AEAAAAC+wAAAAZm8n6/ADABAAAAAAAABMYAAABjAP////sAAAAGZXBQPAAwAQAABMoAAAKfAAAAYwD///8AAAdpAAAAAAAAAAQAAAAEAAAACAAAAAj8AAAAAA=="/>
+        <tab title="标签页0" geometry="AdnQywADAAAAAAAAAAAAAAAACBYAAATBAAAAAAAAAAD//////////wAAAAAAAAAACgAAAAAAAAAAAAAACBYAAATB" checked="1" state="AAAA/wAAAAD9AAAAAgAAAAEAAAXtAAAA1vwCAAAAA/sAAAAIj9CITGXlX9cAAAAAAP////8AAABdAP////sAAAAMAFIAVABUVH1O5IhMAAAAAAD/////AAAAwAD////7AAAACgBSAFQAVGVwY24AAAAAAP////8AAAEPAP///wAAAAMAAAgXAAAEwvwBAAAAAfwAAAAAAAAIFwAAAMoA/////AEAAAAC+wAAAAZm8n6/ADABAAAAAAAABTcAAABjAP////sAAAAGZXBQPAAwAQAABTsAAALcAAAAYwD///8AAAgVAAAAAAAAAAQAAAAEAAAACAAAAAj8AAAAAA=="/>
     </tabs>
     <forms>
         <form type="0" title="Form"/>
@@ -41,33 +41,85 @@
         </form>
         <form chip="0" floating="0" visible="0" type="6" title="Form" page="-1"/>
         <form floating="0" visible="1" lv-hidden="" type="7" title="数值0" page="0" lv-width="215,243,100,100,100,60,100,100,120,100,100,715">
-            <var name="s_motor_control.state" addr="0x20001440" color="" desc="s_motor_control.state" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
-            <var name="s_motor_control.fault_flags" addr="0x20001444" color="" desc="s_motor_control.fault_flags" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_motor_control.iq_ref_ma" addr="0x20001448" color="" desc="s_motor_control.iq_ref_ma" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_motor_control.speed_ref_rpm" addr="0x2000144c" color="" desc="s_motor_control.speed_ref_rpm" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_motor_control.position_ref_mdeg" addr="0x20001450" color="" desc="s_motor_control.position_ref_mdeg" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_motor_control.mode" addr="0x20001441" color="" desc="s_motor_control.mode" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.raw16" addr="0x2000120c" color="" desc="s_snapshot.raw16" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.raw_unwrapped" addr="0x20001210" color="" desc="s_snapshot.raw_unwrapped" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.raw_delta" addr="0x20001214" color="" desc="s_snapshot.raw_delta" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.mech_mdeg" addr="0x20001218" color="" desc="s_snapshot.mech_mdeg" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.elec_mrad" addr="0x2000121c" color="" desc="s_snapshot.elec_mrad" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.speed_raw" addr="0x20001220" color="" desc="s_snapshot.speed_raw" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.last_rejected_raw16" addr="0x20001222" color="" desc="s_snapshot.last_rejected_raw16" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.last_rejected_delta" addr="0x20001224" color="" desc="s_snapshot.last_rejected_delta" unit="" showType="Signed" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.valid" addr="0x20001226" color="" desc="s_snapshot.valid" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.fresh" addr="0x20001227" color="" desc="s_snapshot.fresh" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.spike_rejected" addr="0x20001228" color="" desc="s_snapshot.spike_rejected" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.sample_count" addr="0x2000122c" color="" desc="s_snapshot.sample_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.accept_count" addr="0x20001230" color="" desc="s_snapshot.accept_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.bus_error_count" addr="0x20001234" color="" desc="s_snapshot.bus_error_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.spike_count" addr="0x20001238" color="" desc="s_snapshot.spike_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
-            <var name="s_snapshot.stale_count" addr="0x2000123c" color="" desc="s_snapshot.stale_count" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.state" addr="0x20001600" color="" desc="控制状态" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.mode" addr="0x20001601" color="" desc="控制模式" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.fault_flags" addr="0x20001604" color="" desc="故障标志" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.iq_ref_ma" addr="0x20001608" color="" desc="Iq目标" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.speed_ref_rpm" addr="0x2000160c" color="" desc="速度目标" unit="rpm" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_motor_control.position_ref_mdeg" addr="0x20001610" color="" desc="位置目标" unit="mdeg" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw16" addr="0x200012bc" color="" desc="编码器原始值" unit="raw16" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.corrected_raw16" addr="0x200012be" color="" desc="编码器标定值" unit="raw16" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw_unwrapped" addr="0x200012c0" color="" desc="原始展开位置" unit="count" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.corrected_unwrapped" addr="0x200012c4" color="" desc="标定展开位置" unit="count" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw_delta" addr="0x200012c8" color="" desc="原始位置增量" unit="count" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.corrected_delta" addr="0x200012ca" color="" desc="标定位置增量" unit="count" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.mech_mdeg" addr="0x200012cc" color="" desc="机械角度" unit="mdeg" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.raw_elec_mrad" addr="0x200012d0" color="" desc="标定前电角度" unit="mrad" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.elec_mrad" addr="0x200012d4" color="" desc="标定后电角度" unit="mrad" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.speed_mech_mrad_s" addr="0x200012d8" color="" desc="机械速度" unit="mrad/s" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.speed_elec_mrad_s" addr="0x200012dc" color="" desc="电气速度" unit="mrad/s" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.valid" addr="0x200012e6" color="" desc="编码器有效" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.fresh" addr="0x200012e7" color="" desc="编码器新样本" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.spike_rejected" addr="0x200012e8" color="" desc="本次尖峰拒绝" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.sample_count" addr="0x200012ec" color="" desc="编码器采样总数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.accept_count" addr="0x200012f0" color="" desc="编码器接受总数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.bus_error_count" addr="0x200012f4" color="" desc="编码器总线错误" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.spike_count" addr="0x200012f8" color="" desc="编码器尖峰总数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_snapshot.stale_count" addr="0x200012fc" color="" desc="编码器陈旧总数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_id_ma" addr="0x200000c0" color="" desc="Id" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_iq_ma" addr="0x200000c4" color="" desc="Iq" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_id_avg_ma" addr="0x200000c8" color="" desc="Id窗口平均" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_iq_avg_ma" addr="0x200000cc" color="" desc="Iq窗口平均" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ia_ma" addr="0x2000044c" color="" desc="Iu" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ib_ma" addr="0x20000450" color="" desc="Iv" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ic_ma" addr="0x20000454" color="" desc="Iw" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_vbus_mv" addr="0x2000008c" color="" desc="母线电压" unit="mV" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_uu_mv" addr="0x20000070" color="" desc="Uu指令" unit="mV" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_uv_mv" addr="0x20000074" color="" desc="Uv指令" unit="mV" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_uw_mv" addr="0x20000078" color="" desc="Uw指令" unit="mV" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_ta" addr="0x2000002a" color="" desc="PWM U" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_tb" addr="0x2000002c" color="" desc="PWM V" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_tc" addr="0x2000002e" color="" desc="PWM W" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ia_raw" addr="0x20000458" color="" desc="ADC U原始值" unit="count" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ib_raw" addr="0x2000045a" color="" desc="ADC V原始值" unit="count" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.ic_raw" addr="0x2000045c" color="" desc="ADC W原始值" unit="count" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.raw_ia_ma" addr="0x20000468" color="" desc="低侧原始Iu" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.raw_ib_ma" addr="0x2000046c" color="" desc="低侧原始Iv" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.raw_ic_ma" addr="0x20000470" color="" desc="低侧原始Iw" unit="mA" showType="Signed" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_valid_mask" addr="0x20000474" color="" desc="采样有效掩码" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.reconstructed_phase" addr="0x20000475" color="" desc="重构相" unit="" showType="Enum" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_margin_a" addr="0x20000476" color="" desc="U相采样余量" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_margin_b" addr="0x20000478" color="" desc="V相采样余量" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_margin_c" addr="0x2000047a" color="" desc="W相采样余量" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_tick" addr="0x20000482" color="" desc="采样时刻" unit="tick" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_invalid_total" addr="0x20000484" color="" desc="无效采样总数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_invalid_consecutive" addr="0x20000488" color="" desc="连续无效采样" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.sample_overcurrent_consecutive" addr="0x2000048a" color="" desc="连续过流采样" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_sampling_debug_snapshot.pi_freeze_count" addr="0x2000048c" color="" desc="PI冻结次数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_oc_hits" addr="0x20000090" color="" desc="过流命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_imbal_hits" addr="0x20000094" color="" desc="不平衡命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_tick_count" addr="0x2000007c" color="" desc="ISR计数" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_cur_hits" addr="0x200000bc" color="" desc="电流环命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_spd_hits" addr="0x200000d8" color="" desc="速度环命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_fault_hits" addr="0x20000084" color="" desc="故障分支命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_disabled_hits" addr="0x20000088" color="" desc="停机分支命中" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_enc_alive" addr="0x20000022" color="" desc="编码器在线" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_enc_errors" addr="0x20000034" color="" desc="编码器连续错误" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_enc_spikes" addr="0x200000ac" color="" desc="编码器尖峰" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
+            <var name="s_dbg_enc_bus_errors" addr="0x200000b0" color="" desc="编码器总线错误镜像" unit="" showType="Unsigned" subvar="0" interval="10" formula=""/>
         </form>
-        <form xTag="0" min="-500" page="0" type="8" max="500" trigValue="0" floating="0" subMode="0" title="曲线0" autoRange="1" filterType="1" visible="1" refName="" refValue="0" refType="0" xCount="1092.36" trigType="0" scatterStyle="1" scrollType="0" lineStyle="1" trigName="">
-            <var name="s_snapshot.raw16" color="#ff0000" desc="s_snapshot.raw16" subPlot="0"/>
-            <var name="s_snapshot.raw_delta" color="#00ffff" desc="s_snapshot.raw_delta" subPlot="1"/>
-            <var name="s_snapshot.mech_mdeg" color="#ff00ff" desc="s_snapshot.mech_mdeg" subPlot="2"/>
+        <form xTag="0" min="-500" page="0" type="8" max="500" trigValue="0" floating="0" subMode="1" title="曲线0" autoRange="1" filterType="1" visible="1" refName="" refValue="0" refType="0" xCount="1967.95" trigType="0" scatterStyle="1" scrollType="0" lineStyle="1" trigName="">
+            <var name="s_snapshot.raw16" color="#ff0000" desc="编码器原始值" subPlot="0"/>
+            <var name="s_snapshot.raw_elec_mrad" color="#ff8000" desc="标定前电角度(mrad)" subPlot="0"/>
+            <var name="s_snapshot.elec_mrad" color="#00c060" desc="标定后电角度(mrad)" subPlot="0"/>
+            <var name="s_dbg_id_ma" color="#00ffff" desc="Id(mA)" subPlot="1"/>
+            <var name="s_dbg_iq_ma" color="#ff00ff" desc="Iq(mA)" subPlot="1"/>
+            <var name="s_sampling_debug_snapshot.ia_ma" color="#ff0000" desc="Iu(mA)" subPlot="2"/>
+            <var name="s_sampling_debug_snapshot.ib_ma" color="#00c060" desc="Iv(mA)" subPlot="2"/>
+            <var name="s_sampling_debug_snapshot.ic_ma" color="#0080ff" desc="Iw(mA)" subPlot="2"/>
+            <var name="s_dbg_uu_mv" color="#ff8000" desc="Uu(mV)" subPlot="3"/>
+            <var name="s_dbg_uv_mv" color="#a000ff" desc="Uv(mV)" subPlot="3"/>
+            <var name="s_dbg_uw_mv" color="#00c0c0" desc="Uw(mV)" subPlot="3"/>
         </form>
     </forms>
 </lksscope>
