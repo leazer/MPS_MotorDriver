@@ -282,6 +282,9 @@ generated/
 | 2026-06-22 | 阶段 4+4b | 已验证/进入后续优化 | MA600A SPI2 接入 + 旁轴标定. 台架验收修复 6 根因: (1) open_loop/align 状态未互斥 (2) SPI GPIO mux+transfer16 (3) motor_encoder 16-bit误左移 (4) 标定旋转电角度圈数致覆盖不足 (5) compute不除采样次数 (6) 采样计数与旋转脱耦改按时间切状态. 2026-07-10 最新标定: 2圈/200 electrical rpm, residual=115mdeg(0.115deg), bins=256, min_bin=420, spikes=0. V2 BSP 硬件映射已提交 9519e6f. |
 | 2026-07-10 | 阶段 4+6 准备 | 已验证/待提交 | 编码器角度标定后 raw16 与电角度周期关系确认正常; TMR7 4kHz 采样、FOC 16kHz. 速度估计由 tracker PI/单点误差驱动收敛为 corrected raw unwrap + 32样本窗口差分, 静止与开环 60/200rpm 均值基本贴近理论值. 下一步以窗口速度作为反馈进入 Stage 6 速度环, 速度环输出 Iq_ref 并增加目标斜坡和限流. |
 | 2026-07-10 | 阶段 6 | 代码完成/待台架验证 | 最小速度闭环已实现: `speed_loop` 1kHz PI + 目标斜坡, 输出 `Iq_ref`; `MOTOR_CONTROL_MODE_SPEED` 复用编码器电角度、电流环和 SVPWM; 新增 `mc_speed <rpm_elec>`、`mc_debug` 速度环快照. 静态测试通过, Keil/MDK 构建 0 Error 0 Warning. 待 COM9 台架验证 60/200 rpm 稳速、方向、限流和停机行为. |
+| 2026-07-20 | 阶段 5 电流采样重构 | 固件已上板/闭环门禁待确认 | 提交 `bf26919` 已经 J-Link 原生命令行擦除、编程并 Verify；上电后 `state=DISABLED`、EN=LOW、fault=0、CCR4=5264、编码器标定 valid=1、VBUS=12.152V。尚未执行 `mc_cal` 和 ±50/100/200/500mA 矩阵，等待确认限流电源设置及示波器采样窗口门禁。 |
+| 2026-07-20 | 阶段 5 电流采样重构 | 台架失败/根因已确认 | 1A 限流下 Section A 与零偏标定通过，但首个 `-50mA` 点落到 `Iq≈+569mA, Id≈-647mA`；对称 `+50mA` 落到 `Iq≈-699mA, Id≈-460mA`。`valid_mask=0x07`、invalid/freeze 不增长且 fault=0，排除无效帧。固定 `mc_open 500 0` 正 α 轴电压实测 `Ia<0, Ib/Ic>0`，与理论极性相反，确认 5264 低边采样电流未转换为 FOC 相电流符号，导致 PI 正反馈。已停止更高电流矩阵。 |
+| 2026-07-21 | 阶段 5 电流采样重构 | ±500mA 全象限已验证 | 提交 `314080c` 在重构边界统一将低边器件电流转换为 FOC 相电流极性，raw 诊断保持硬件极性。主机 RED/GREEN、静态测试、CMake 与 Keil 构建通过；J-Link Verify 后固定 `+500mV` α 轴门禁得到 `Ia>0, Ib/Ic<0`。1A 限流下 ±50/100/200/500mA 八点全部通过，Iq 最大偏差 4mA、|Id| 最大 5mA、valid_mask=0x07、invalid/freeze 不增长、fault=0。>500mA 与速度环仍未验证。 |
 
 状态枚举：
 

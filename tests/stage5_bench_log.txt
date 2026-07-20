@@ -1,11 +1,12 @@
 === Section A: precondition ===
 [A] PASS: DISABLED, fault clear, mc_cal done, mc_cur exists
-=== Section B: ramp mode (force cal invalid) ===
-[B2] PASS: enc rejected when cal invalid
-[B3] PASS: ramp mode started (0.2A, 60rpm)
-[B4] PASS: cur_hits+181686 (ISR running CURRENT branch)
-=== Section D: enc mode (with calibration) ===
-[D1] PASS: calibration DONE
-[D3] PASS: enc mode started (50mA, 空载低 BEMF)
+PASS -50mA: id=-5mA iq=-50mA mask=0x07 recon=1
+PASS +50mA: id=-1mA iq=46mA mask=0x07 recon=2
+PASS -100mA: id=0mA iq=-99mA mask=0x07 recon=1
+PASS +100mA: id=0mA iq=100mA mask=0x07 recon=3
+PASS -200mA: id=0mA iq=-200mA mask=0x07 recon=2
+PASS +200mA: id=1mA iq=201mA mask=0x07 recon=1
+PASS -500mA: id=0mA iq=-500mA mask=0x07 recon=2
+PASS +500mA: id=0mA iq=498mA mask=0x07 recon=1
 
-=== FAIL: D4: enc iq err 72.0% >= 10.0% ===
+=== ALL PASS ===
