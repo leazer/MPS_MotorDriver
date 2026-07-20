@@ -292,6 +292,28 @@ static void mc_debug(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_debug, show FOC ISR internal state);
 
+/* ---- mc_speed_status: 紧凑速度环状态, 供 Stage 6 高频串口采样 ---- */
+static void mc_speed_status(int argc, char **argv)
+{
+    motor_control_isr_debug_t dbg;
+    (void)argc; (void)argv;
+    motor_control_isr_get_debug(&dbg);
+    rt_kprintf("spdstat active=%d target=%ld cmd=%ld meas=%ld iqref=%ld "
+               "id=%ld iq=%ld invalid=%lu streak=%u freeze=%lu fault=0x%08X\n",
+               motor_control_isr_speed_active() ? 1 : 0,
+               (long)dbg.spd_target_mrad_s,
+               (long)dbg.spd_cmd_mrad_s,
+               (long)dbg.spd_meas_mrad_s,
+               (long)dbg.spd_iq_ref_ma,
+               (long)dbg.id_avg_ma,
+               (long)dbg.iq_avg_ma,
+               (unsigned long)dbg.sample_invalid_total,
+               (unsigned)dbg.sample_invalid_consecutive,
+               (unsigned long)dbg.pi_freeze_count,
+               (unsigned)fault_manager_get());
+}
+MSH_CMD_EXPORT(mc_speed_status, show compact speed loop status);
+
 /* ---- mc_current: 打印三相电流 + VBUS 详细 (Stage 3) ---- */
 static void mc_current(int argc, char **argv)
 {
