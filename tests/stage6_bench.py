@@ -16,6 +16,8 @@ RUN_DURATION_S = 5.0
 SAFE_DUTY_TICKS = 2812
 EXPECTED_SAMPLE_TICK = 5264
 SPEED_IQ_LIMIT_MA = 500
+SETTLE_SPEED_MRAD_S = 500
+SETTLE_CONSECUTIVE_SAMPLES = 4
 
 STATUS_RE = re.compile(
     r"spdstat\s+active=(\d+)\s+target=(-?\d+)\s+cmd=(-?\d+)\s+"
@@ -56,6 +58,17 @@ def send_cmd(ser, cmd, timeout=2.0):
     return read_until_prompt(ser, timeout=timeout)
 
 
+def send_until_matches(ser, cmd, patterns, attempts=5, timeout=2.0):
+    """Repeat an idempotent/safe shell command until its reply is complete."""
+    last_text = ""
+    for _ in range(attempts):
+        last_text = send_cmd(ser, cmd, timeout=timeout)
+        if all(re.search(pattern, last_text) for pattern in patterns):
+            return last_text
+    safe_text = last_text.encode("ascii", errors="backslashreplace").decode("ascii")
+    raise AssertionError(f"incomplete {cmd} reply after {attempts} attempts: {safe_text!r}")
+
+
 def parse_speed_status(text):
     match = STATUS_RE.search(text)
     if match is None:
@@ -81,15 +94,62 @@ def read_speed_status(ser, attempts=5):
     raise AssertionError(f"no valid speed status after {attempts} attempts: {safe_text!r}")
 
 
+def start_speed_loop(ser, rpm_elec, attempts=3):
+    """Start a speed target and confirm it even if the UART ack is damaged."""
+    expected_target = int(rpm_elec * 6.28318530718 * 1000.0 / 60.0)
+    last_text = ""
+    for _ in range(attempts):
+        last_text = send_cmd(ser, f"mc_speed {rpm_elec}")
+        if "speed loop:" in last_text:
+            return
+        try:
+            snapshot = read_speed_status(ser)
+        except AssertionError:
+            snapshot = None
+        if (snapshot is not None and snapshot["active"] == 1 and
+                abs(snapshot["target"] - expected_target) <= 1):
+            return
+        send_cmd(ser, "mc_stop")
+    safe_text = last_text.encode("ascii", errors="backslashreplace").decode("ascii")
+    raise AssertionError(f"speed loop start failed after {attempts} attempts: {safe_text!r}")
+
+
+def settle_motor_at_zero(ser, timeout_s=5.0):
+    """Actively brake the free shaft to rest, then leave the bridge disabled."""
+    send_cmd(ser, "mc_stop")
+    try:
+        start_speed_loop(ser, 0)
+        deadline = time.monotonic() + timeout_s
+        settled = 0
+        time.sleep(0.1)
+        while time.monotonic() < deadline:
+            snapshot = read_speed_status(ser)
+            assert snapshot["active"] == 1, snapshot
+            assert snapshot["fault"] == 0, snapshot
+            assert snapshot["streak"] == 0, snapshot
+            assert abs(snapshot["iqref"]) <= SPEED_IQ_LIMIT_MA, snapshot
+            if abs(snapshot["meas"]) <= SETTLE_SPEED_MRAD_S:
+                settled += 1
+                if settled >= SETTLE_CONSECUTIVE_SAMPLES:
+                    return
+            else:
+                settled = 0
+            time.sleep(SAMPLE_PERIOD_S)
+        raise AssertionError("motor did not settle at zero speed")
+    finally:
+        send_cmd(ser, "mc_stop")
+
+
 def prepare_bench(ser):
     send_cmd(ser, "mc_stop")
     send_cmd(ser, "fault_clear")
-    cal = send_cmd(ser, "mc_cal", timeout=4.0)
-    assert re.search(r"mc_cal result:\s*PASS\s+offset_valid=1", cal), cal
-    enc = send_cmd(ser, "enc_cal_status")
-    assert re.search(r"(?m)^valid\s*:\s*1\s*$", enc), enc
-    fault = send_cmd(ser, "fault")
-    assert re.search(r"fault\s*=\s*0x0+\b", fault), fault
+    send_until_matches(
+        ser, "mc_cal", (r"mc_cal result:\s*PASS\s+offset_valid=1",),
+        attempts=3, timeout=4.0,
+    )
+    send_until_matches(ser, "enc_cal_status", (r"(?m)^valid\s*:\s*1\s*$",))
+    send_until_matches(ser, "fault", (r"fault\s*=\s*0x0+\b",))
+    settle_motor_at_zero(ser)
 
 
 def summarize_target(rpm_elec, samples):
@@ -132,8 +192,7 @@ def summarize_target(rpm_elec, samples):
 
 
 def run_target(ser, rpm_elec, duration_s=RUN_DURATION_S):
-    start = send_cmd(ser, f"mc_speed {rpm_elec}")
-    assert "speed loop:" in start, start
+    start_speed_loop(ser, rpm_elec)
     started = time.monotonic()
     samples = []
     while time.monotonic() - started < duration_s:
@@ -155,9 +214,17 @@ def run_target(ser, rpm_elec, duration_s=RUN_DURATION_S):
 
 def verify_final_safe_state(ser):
     send_cmd(ser, "mc_stop")
-    state = send_cmd(ser, "mc_state")
-    fault = send_cmd(ser, "fault")
-    pwm = send_cmd(ser, "pwm_info")
+    state = send_until_matches(ser, "mc_state", (r"state\s*:\s*0\b",))
+    fault = send_until_matches(ser, "fault", (r"fault\s*=\s*0x0+\b",))
+    pwm = send_until_matches(
+        ser,
+        "pwm_info",
+        (
+            r"CCR1/2/3\s*:\s*2812\s*/\s*2812\s*/\s*2812",
+            rf"CCR4\s*:\s*{EXPECTED_SAMPLE_TICK}\b",
+            r"EN\(PB10\)\s*:\s*0\b",
+        ),
+    )
     status = read_speed_status(ser)
     assert re.search(r"state\s*:\s*0\b", state), state
     assert re.search(r"fault\s*=\s*0x0+\b", fault), fault
@@ -199,7 +266,7 @@ def main(argv=None):
             line = format_metrics(metrics)
             print(line, flush=True)
             log.append(line)
-            send_cmd(ser, "mc_stop")
+            settle_motor_at_zero(ser)
             if not metrics["direction_ok"]:
                 performance_ok = False
             if abs(rpm_elec) >= 60 and (

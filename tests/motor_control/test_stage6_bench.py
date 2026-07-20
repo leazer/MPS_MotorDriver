@@ -83,6 +83,77 @@ def test_speed_status_retries_after_one_corrupt_reply():
     assert snapshot["meas"] == 1
 
 
+def test_speed_start_accepts_corrupt_ack_when_status_confirms_target():
+    commands = []
+    original_send = BENCH.send_cmd
+    original_read = BENCH.read_speed_status
+    BENCH.send_cmd = lambda _ser, cmd, **_kwargs: commands.append(cmd) or "mc_spYY"
+    BENCH.read_speed_status = lambda _ser: {
+        "active": 1,
+        "target": 6283,
+        "cmd": 0,
+        "meas": 0,
+        "iqref": 0,
+        "id": 0,
+        "iq": 0,
+        "invalid": 0,
+        "streak": 0,
+        "freeze": 0,
+        "fault": 0,
+    }
+    try:
+        BENCH.start_speed_loop(FakeSerial(), 60)
+    finally:
+        BENCH.send_cmd = original_send
+        BENCH.read_speed_status = original_read
+    assert commands == ["mc_speed 60"]
+
+
+def test_shell_query_retries_until_all_patterns_match():
+    replies = iter(("enc_cal_statu", "valid     : 1\nmsh >"))
+    original = BENCH.send_cmd
+    BENCH.send_cmd = lambda *_args, **_kwargs: next(replies)
+    try:
+        text = BENCH.send_until_matches(
+            FakeSerial(), "enc_cal_status", (r"(?m)^valid\s*:\s*1\s*$",), attempts=2
+        )
+    finally:
+        BENCH.send_cmd = original
+    assert "valid" in text
+
+
+def test_settle_motor_uses_zero_speed_loop_then_stops():
+    commands = []
+    measurements = iter((2400, 800, 400, 300, 200, 100))
+    original_send = BENCH.send_cmd
+    original_read = BENCH.read_speed_status
+    original_sleep = BENCH.time.sleep
+    BENCH.send_cmd = lambda _ser, cmd, **_kwargs: commands.append(cmd) or (
+        "speed loop:" if cmd == "mc_speed 0" else ""
+    )
+    BENCH.read_speed_status = lambda _ser: {
+        "active": 1,
+        "target": 0,
+        "cmd": 0,
+        "meas": next(measurements),
+        "iqref": 0,
+        "id": 0,
+        "iq": 0,
+        "invalid": 0,
+        "streak": 0,
+        "freeze": 0,
+        "fault": 0,
+    }
+    BENCH.time.sleep = lambda _seconds: None
+    try:
+        BENCH.settle_motor_at_zero(FakeSerial(), timeout_s=1.0)
+    finally:
+        BENCH.send_cmd = original_send
+        BENCH.read_speed_status = original_read
+        BENCH.time.sleep = original_sleep
+    assert commands == ["mc_stop", "mc_speed 0", "mc_stop"]
+
+
 def test_shell_exports_compact_speed_status():
     shell = (ROOT / "application" / "motor_shell.c").read_text(encoding="utf-8")
     assert "static void mc_speed_status" in shell
@@ -150,6 +221,9 @@ if __name__ == "__main__":
     test_parse_compact_speed_status()
     test_serial_decode_drops_corrupt_bytes_without_console_replacement_chars()
     test_speed_status_retries_after_one_corrupt_reply()
+    test_speed_start_accepts_corrupt_ack_when_status_confirms_target()
+    test_shell_query_retries_until_all_patterns_match()
+    test_settle_motor_uses_zero_speed_loop_then_stops()
     test_shell_exports_compact_speed_status()
     test_final_safe_state_is_queried_and_asserted()
     test_main_stops_and_closes_after_failure()
