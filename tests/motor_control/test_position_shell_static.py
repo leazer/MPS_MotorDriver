@@ -20,6 +20,7 @@ def test_position_shell_commands_are_exported():
     for name in ["mc_pos_zero", "mc_pos", "mc_pos_stream", "mc_pos_status"]:
         assert f"static void {name}" in shell
         assert f"MSH_CMD_EXPORT({name}" in shell
+    assert "MSH_CMD_EXPORT_ALIAS(mc_pos_stream, mp," in shell
 
 
 def test_joint_zero_is_disabled_only_and_uses_control_position():

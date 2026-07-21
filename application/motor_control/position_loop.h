@@ -37,6 +37,7 @@ bool position_loop_origin_valid(void);
 int32_t position_loop_sensor_to_joint_mdeg(int32_t sensor_mdeg);
 bool position_loop_submit(const position_setpoint_t *setpoint);
 float position_loop_run(int32_t sensor_mdeg);
+float position_loop_get_iq_feedforward_A(void);
 bool position_loop_get_snapshot(position_loop_snapshot_t *out);
 
 #ifdef __cplusplus

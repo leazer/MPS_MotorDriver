@@ -72,6 +72,45 @@ def test_status_reader_retries_corrupt_reply():
     assert sample["sequence"] == 42
 
 
+def test_stream_uses_short_shell_alias():
+    source = BENCH_PATH.read_text(encoding="utf-8")
+    assert 'f"mp {sequence & 0xFFFF} {position_mdeg} {velocity_mdeg_s}"' in source
+    assert "send_stream_point(ser, sequence, 0, 0)" in source
+    assert BENCH.STREAM_PERIOD_S == 0.02
+    assert "period_ms=20" in source
+    assert "trajectory_time += min(point_delta_s, period_s * 2.0)" in source
+    assert "point_rate_hz" in source
+    assert "retry_count" in source
+
+
+def test_stream_point_retries_transient_shell_parse_failure():
+    replies = iter((
+        "usage: mc_pos_stream <seq> <position_mdeg> <velocity_mdeg_s>",
+        "position stream: seq=7 target=100 vel=-20",
+    ))
+    commands = []
+    original_send = BENCH.send_cmd
+    original_sleep = BENCH.time.sleep
+    BENCH.send_cmd = lambda _ser, cmd, **_kwargs: (
+        commands.append(cmd) or next(replies)
+    )
+    BENCH.time.sleep = lambda _delay: None
+    try:
+        BENCH.send_stream_point(FakeSerial(), 7, 100, -20)
+    finally:
+        BENCH.send_cmd = original_send
+        BENCH.time.sleep = original_sleep
+    assert commands == ["mp 7 100 -20", "mp 7 100 -20"]
+
+
+def test_main_settles_at_zero_before_sine_stream():
+    source = BENCH_PATH.read_text(encoding="utf-8")
+    main = source.split("def main", 1)[1]
+    assert main.index("settle_position_at_zero(ser)") < main.index(
+        "run_sine_stream(ser)"
+    )
+
+
 def test_timeout_metrics_require_zero_feedforward_and_frozen_reference():
     before = BENCH.parse_position_status(make_status_line(reference=10200, age=20))
     timed_out = BENCH.parse_position_status(
@@ -143,6 +182,9 @@ def test_main_always_stops_and_closes_after_failure():
 if __name__ == "__main__":
     test_parse_compact_position_status()
     test_status_reader_retries_corrupt_reply()
+    test_stream_uses_short_shell_alias()
+    test_stream_point_retries_transient_shell_parse_failure()
+    test_main_settles_at_zero_before_sine_stream()
     test_timeout_metrics_require_zero_feedforward_and_frozen_reference()
     test_sampling_quality_guard_rejects_invalid_or_freeze_growth()
     test_main_always_stops_and_closes_after_failure()

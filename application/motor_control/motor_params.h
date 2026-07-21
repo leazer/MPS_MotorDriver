@@ -120,6 +120,9 @@ extern "C" {
 #define POSITION_EXTRAPOLATION_LIMIT_MS 20u
 #define POSITION_STREAM_LEASE_MS        100u
 #define POSITION_LOOP_DIV               16u
+#define POSITION_IQ_FRICTION_A          0.08f
+#define POSITION_IQ_FRICTION_MOVING_A   0.04f
+#define POSITION_IQ_FRICTION_ERROR_MDEG 200
 
 /* ===== 零点标定 (spec §4.5.3) ===== */
 #define ZERO_ALIGN_CURRENT_A            1.0f

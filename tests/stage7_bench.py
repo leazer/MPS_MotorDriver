@@ -21,7 +21,9 @@ POSITION_STATUS_CHECK_SEED = 0x504F5331
 POSITION_IQ_LIMIT_MA = 500
 STATIC_SETTLE_S = 2.0
 STATUS_PERIOD_S = 0.05
-STREAM_PERIOD_S = 0.01
+# The text shell is qualified at 50 Hz; the production CAN setpoint API is
+# designed for 100 Hz.  The loop's 20 ms extrapolation bound covers this bench.
+STREAM_PERIOD_S = 0.02
 
 open_port = _STAGE6.open_port
 send_cmd = _STAGE6.send_cmd
@@ -66,6 +68,23 @@ def read_position_status(ser, attempts=5):
             return sample
     safe = last_text.encode("ascii", errors="backslashreplace").decode("ascii")
     raise AssertionError(f"no valid position status after {attempts} attempts: {safe!r}")
+
+
+def send_stream_point(ser, sequence, position_mdeg, velocity_mdeg_s,
+                      attempts=5):
+    command = (
+        f"mp {sequence & 0xFFFF} {position_mdeg} {velocity_mdeg_s}"
+    )
+    last_text = ""
+    for attempt in range(attempts):
+        last_text = send_cmd(ser, command, timeout=0.5)
+        if re.search(r"position stream:", last_text):
+            return attempt + 1
+        time.sleep(0.005)
+    safe = last_text.encode("ascii", errors="backslashreplace").decode("ascii")
+    raise AssertionError(
+        f"incomplete {command} reply after {attempts} attempts: {safe!r}"
+    )
 
 
 def assert_position_sample_safe(sample, active=True):
@@ -129,45 +148,57 @@ def run_reversal(ser):
     return run_static_steps(ser, targets=(10000, -10000))
 
 
+def settle_position_at_zero(ser, timeout_s=3.0):
+    send_until_matches(ser, "mc_pos 0", (r"position hold:",), attempts=3)
+    deadline = time.monotonic() + timeout_s
+    settled = 0
+    while time.monotonic() < deadline:
+        sample = read_position_status(ser)
+        assert_position_sample_safe(sample)
+        if abs(sample["error"]) <= 500:
+            settled += 1
+            if settled >= 4:
+                return
+        else:
+            settled = 0
+        time.sleep(STATUS_PERIOD_S)
+    raise AssertionError("position did not settle within 0.5 degree of zero")
+
+
 def run_sine_stream(ser, amplitude_deg=10.0, peak_velocity_deg_s=30.0,
-                    period_ms=10):
+                    period_ms=20):
     amplitude_mdeg = amplitude_deg * 1000.0
     omega = peak_velocity_deg_s / amplitude_deg
     duration_s = 2.0 * math.pi / omega
     period_s = period_ms * 0.001
     sequence = 1000
     started = time.monotonic()
-    next_tick = started
+    previous_point_time = started
+    trajectory_time = 0.0
     samples = []
+    retry_count = 0
     tick = 0
-    while True:
-        now = time.monotonic()
-        elapsed = now - started
-        if elapsed > duration_s:
-            break
-        position = int(round(amplitude_mdeg * math.sin(omega * elapsed)))
-        velocity = int(round(amplitude_mdeg * omega * math.cos(omega * elapsed)))
-        send_until_matches(
-            ser,
-            f"mc_pos_stream {sequence & 0xFFFF} {position} {velocity}",
-            (r"position stream:",),
-            attempts=2,
-            timeout=0.5,
-        )
+    while trajectory_time < duration_s:
+        cycle = time.monotonic()
+        if tick != 0:
+            point_delta_s = cycle - previous_point_time
+            trajectory_time += min(point_delta_s, period_s * 2.0)
+        previous_point_time = cycle
+        position = int(round(amplitude_mdeg * math.sin(omega * trajectory_time)))
+        velocity = int(round(amplitude_mdeg * omega * math.cos(omega * trajectory_time)))
+        attempts = send_stream_point(ser, sequence, position, velocity)
+        retry_count += attempts - 1
         sequence += 1
-        if tick % 5 == 0:
+        if tick % 3 == 0:
             sample = read_position_status(ser)
             assert_position_sample_safe(sample)
-            samples.append((elapsed, sample))
+            samples.append((time.monotonic() - started, sample))
         tick += 1
-        next_tick += period_s
-        remaining = next_tick - time.monotonic()
+        remaining = period_s - (time.monotonic() - cycle)
         if remaining > 0:
             time.sleep(remaining)
-    send_until_matches(
-        ser, f"mc_pos_stream {sequence & 0xFFFF} 0 0",
-        (r"position stream:",), attempts=2, timeout=0.5,
-    )
+    send_stream_point(ser, sequence, 0, 0)
+    stream_elapsed_s = time.monotonic() - started
     final = read_position_status(ser)
     assert_position_sample_safe(final)
     samples.append((time.monotonic() - started, final))
@@ -175,6 +206,9 @@ def run_sine_stream(ser, amplitude_deg=10.0, peak_velocity_deg_s=30.0,
     p95_index = max(0, math.ceil(len(errors) * 0.95) - 1)
     return {
         "samples": len(samples),
+        "points": tick,
+        "point_rate_hz": tick / stream_elapsed_s,
+        "retry_count": retry_count,
         "p95_error_mdeg": errors[p95_index],
         "peak_iqref_ma": max(abs(sample["iqref"]) for _, sample in samples),
         "final_velocity_mdeg_s": final["velocity"],
@@ -208,10 +242,7 @@ def summarize_sampling_quality(before, after):
 
 
 def verify_stream_timeout_hold(ser):
-    send_until_matches(
-        ser, "mc_pos_stream 30000 0 10000", (r"position stream:",),
-        attempts=2, timeout=0.5,
-    )
+    send_stream_point(ser, 30000, 0, 10000)
     before = read_position_status(ser)
     time.sleep(0.13)
     timed_out = read_position_status(ser)
@@ -246,6 +277,7 @@ def main(argv=None):
         sampling_before = _STAGE6.read_speed_status(ser)
         static = run_static_steps(ser)
         reversal = run_reversal(ser)
+        settle_position_at_zero(ser)
         sine = run_sine_stream(ser)
         timeout = verify_stream_timeout_hold(ser)
         sampling_after = _STAGE6.read_speed_status(ser)

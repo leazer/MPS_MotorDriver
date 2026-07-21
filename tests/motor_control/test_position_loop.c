@@ -126,7 +126,10 @@ static void test_sequence_rules_and_wrap(void)
     position_loop_set_origin(0, 0);
     setpoint = point(0, 0, 10u, 0u);
     assert(position_loop_submit(&setpoint));
+    assert(position_loop_submit(&setpoint));
+    setpoint.position_mdeg = 1;
     assert(!position_loop_submit(&setpoint));
+    setpoint.position_mdeg = 0;
     setpoint.sequence = 9u;
     assert(!position_loop_submit(&setpoint));
     setpoint.sequence = (uint16_t)(10u + 0x8000u);
@@ -197,6 +200,37 @@ static void test_sign_limit_fault_and_reset(void)
     assert(!position_loop_origin_valid());
 }
 
+static void test_position_friction_feedforward_and_deadband(void)
+{
+    position_setpoint_t setpoint;
+
+    position_loop_init();
+    position_loop_set_origin(0, 0);
+
+    setpoint = point(5000, 0, 1u, 0u);
+    assert(position_loop_submit(&setpoint));
+    (void)run_one_millisecond(0);
+    assert(fabsf(position_loop_get_iq_feedforward_A() -
+                 POSITION_IQ_FRICTION_A) < 1.0e-6f);
+
+    setpoint = point(POSITION_IQ_FRICTION_ERROR_MDEG, 0, 2u, 0u);
+    assert(position_loop_submit(&setpoint));
+    (void)run_one_millisecond(0);
+    assert(position_loop_get_iq_feedforward_A() == 0.0f);
+
+    setpoint = point(0, 10000, 3u, 100u);
+    assert(position_loop_submit(&setpoint));
+    (void)run_one_millisecond(0);
+    assert(fabsf(position_loop_get_iq_feedforward_A() -
+                 POSITION_IQ_FRICTION_MOVING_A) < 1.0e-6f);
+
+    setpoint = point(-5000, 0, 4u, 0u);
+    assert(position_loop_submit(&setpoint));
+    (void)run_one_millisecond(0);
+    assert(fabsf(position_loop_get_iq_feedforward_A() +
+                 POSITION_IQ_FRICTION_A) < 1.0e-6f);
+}
+
 int main(void)
 {
     test_origin_and_first_setpoint();
@@ -204,6 +238,7 @@ int main(void)
     test_sequence_rules_and_wrap();
     test_static_hold_never_times_out();
     test_sign_limit_fault_and_reset();
+    test_position_friction_feedforward_and_deadband();
     printf("position loop tests passed\n");
     return 0;
 }

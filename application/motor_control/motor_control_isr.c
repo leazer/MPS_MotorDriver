@@ -620,7 +620,13 @@ void motor_control_isr_tick(void)
             }
 
             if (sample.frame_valid) {
-                iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s());
+                iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s()) +
+                    position_loop_get_iq_feedforward_A();
+                if (iq_ref > SPEED_IQ_LIMIT_A) {
+                    iq_ref = SPEED_IQ_LIMIT_A;
+                } else if (iq_ref < -SPEED_IQ_LIMIT_A) {
+                    iq_ref = -SPEED_IQ_LIMIT_A;
+                }
                 current_loop_set_targets(0.0f, iq_ref);
 
                 foc_clarke(sample.ia, sample.ib, sample.ic, &i_alpha, &i_beta);

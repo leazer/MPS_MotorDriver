@@ -611,6 +611,7 @@ static void mc_pos_stream(int argc, char **argv)
     }
 }
 MSH_CMD_EXPORT(mc_pos_stream, stream position and velocity feedforward);
+MSH_CMD_EXPORT_ALIAS(mc_pos_stream, mp, stream position and velocity feedforward);
 
 /* ---- mc_pos_status: 紧凑位置级联状态, 带 XOR 完整性校验 ---- */
 static void mc_pos_status(int argc, char **argv)

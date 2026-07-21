@@ -1,0 +1,6 @@
+static: [{'target_mdeg': 5000, 'final_error_mdeg': 256.0, 'overshoot_ratio': 0.0, 'peak_iqref_ma': 254, 'fault': 0}, {'target_mdeg': -5000, 'final_error_mdeg': 279.0, 'overshoot_ratio': 0.0, 'peak_iqref_ma': 318, 'fault': 0}]
+reversal: [{'target_mdeg': 10000, 'final_error_mdeg': 221.5, 'overshoot_ratio': 0.0, 'peak_iqref_ma': 255, 'fault': 0}, {'target_mdeg': -10000, 'final_error_mdeg': 198.0, 'overshoot_ratio': 0.0, 'peak_iqref_ma': 291, 'fault': 0}]
+sine: {'samples': 34, 'points': 99, 'point_rate_hz': 37.603522212204176, 'retry_count': 2, 'p95_error_mdeg': 1329, 'peak_iqref_ma': 136, 'final_velocity_mdeg_s': 0, 'fault': 0}
+timeout: {'timeout_seen': True, 'feedforward_zero': True, 'reference_frozen': True, 'reference_delta_mdeg': 0, 'age_ms': 153, 'before_reference_mdeg': 90}
+sampling: {'invalid_delta': 0, 'freeze_delta': 0, 'streak': 0, 'fault': 0}
+FINAL SAFE: state=DISABLED fault=0x00000000 en=0 ccr=2812/2812/2812 tick=5264 speed_active=0 position_active=0

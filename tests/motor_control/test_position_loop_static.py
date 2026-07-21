@@ -25,6 +25,7 @@ def test_position_loop_public_contract():
         "position_loop_sensor_to_joint_mdeg",
         "position_loop_submit",
         "position_loop_run",
+        "position_loop_get_iq_feedforward_A",
         "position_loop_get_snapshot",
     ]:
         assert token in header
@@ -41,6 +42,18 @@ def test_position_loop_has_coherent_publish_and_bounded_extrapolation():
     assert "POSITION_MAX_VELOCITY_MDEG_S" in source
     assert "POSITION_SPEED_LIMIT_ELEC_RAD_S" in params
     assert "POSITION_LOOP_DIV" in params
+    assert "POSITION_IQ_FRICTION_A" in params
+    assert "POSITION_IQ_FRICTION_MOVING_A" in params
+    assert "POSITION_IQ_FRICTION_ERROR_MDEG" in params
+
+
+def test_snapshot_reader_retries_odd_generation_before_comparing_samples():
+    source = read(SOURCE)
+    reader = source.split("bool position_loop_get_snapshot", 1)[1]
+
+    assert "for (;;)" in reader
+    assert "if (generation_before == generation_after &&" in reader
+    assert "return true;" in reader
 
 
 def test_position_loop_uses_mechanical_units_and_pole_pairs_once():
@@ -60,6 +73,7 @@ def test_position_loop_is_in_both_target_builds():
 if __name__ == "__main__":
     test_position_loop_public_contract()
     test_position_loop_has_coherent_publish_and_bounded_extrapolation()
+    test_snapshot_reader_retries_odd_generation_before_comparing_samples()
     test_position_loop_uses_mechanical_units_and_pole_pairs_once()
     test_position_loop_is_in_both_target_builds()
     print("position loop static tests passed")
