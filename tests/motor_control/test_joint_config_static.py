@@ -30,6 +30,10 @@ def test_flash_layout_reserves_two_joint_pages_before_calibration():
     assert "IROM(0x08000000,0x1F400)" in uvproj
     assert "<Size>0x1F400</Size>" in uvproj
     assert "-FL00020000" in uvproj
+    assert "<FileName>joint_config.c</FileName>" in uvproj
+    assert "..\\..\\application\\motor_control\\joint_config.c" in uvproj
+    assert "<FileName>flash_joint_config_at32m412.c</FileName>" in uvproj
+    assert "..\\..\\platform\\at32m412\\flash_joint_config_at32m412.c" in uvproj
 
 
 def test_joint_storage_contract_uses_inactive_page_and_verified_word_write():

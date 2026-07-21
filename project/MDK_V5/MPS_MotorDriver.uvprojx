@@ -444,6 +444,11 @@
               <FilePath>..\..\application\motor_control\position_loop.c</FilePath>
             </File>
             <File>
+              <FileName>joint_config.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\joint_config.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_control_isr.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\motor_control_isr.c</FilePath>
