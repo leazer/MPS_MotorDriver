@@ -183,8 +183,7 @@ def assert_app_contract(app):
 
     ready_block = normalized("""
         if (s_can_ready) {
-            can_at32m412_get_diag(&can_diag);
-            if (can_diag.fatal_latched) {
+            if (can_at32m412_fatal_bus_error()) {
                 can_motion_service_force_stop();
             }
             can_motion_service_poll_tx();
@@ -446,6 +445,11 @@ def test_contract_checkers_reject_scoped_mutations():
             "void motor_app_run(void)",
             "joint_config_service_lock_runtime(&node_id)",
             "joint_config_service_ready()",
+        ),
+        (
+            "void motor_app_run(void)",
+            "can_at32m412_fatal_bus_error()",
+            "false",
         ),
         (
             "void motor_app_run(void)",

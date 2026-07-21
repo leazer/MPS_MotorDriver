@@ -168,8 +168,6 @@ void motor_app_init(void)
 void motor_app_run(void)
 {
     while (1) {
-        can_at32m412_diag_t can_diag;
-
         /* Stage 4b: 标定状态机推进 (线程上下文, 处理 ALIGN 等待/COMPUTE/WRITE_FLASH) */
         motor_calibration_poll();
         joint_config_service_poll();
@@ -189,8 +187,7 @@ void motor_app_run(void)
         }
 
         if (s_can_ready) {
-            can_at32m412_get_diag(&can_diag);
-            if (can_diag.fatal_latched) {
+            if (can_at32m412_fatal_bus_error()) {
                 can_motion_service_force_stop();
             }
             can_motion_service_poll_tx();

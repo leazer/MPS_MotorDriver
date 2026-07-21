@@ -203,8 +203,7 @@ bool can_at32m412_init(uint8_t node_id)
 
     can_flag_clear(CAN1, CAN_ALL_FLAG);
     can_interrupt_enable(CAN1, CAN_RIE_INT | CAN_TPIE_INT |
-                               CAN_EPIE_INT | CAN_EIE_INT |
-                               CAN_BEIE_INT | CAN_ROIE_INT, TRUE);
+                               CAN_ROIE_INT, TRUE);
     can_software_reset(CAN1, FALSE);
 
     nvic_irq_enable(CAN1_RX_IRQn, 3u, 0u);
@@ -302,6 +301,9 @@ void can_at32m412_reset_diagnostics(void)
 
 bool can_at32m412_fatal_bus_error(void)
 {
+    nvic_irq_disable(CAN1_ERR_IRQn);
+    can_snapshot_error_state();
+    nvic_irq_enable(CAN1_ERR_IRQn, CAN_IRQ_PRIORITY, 0u);
     return s_diag.fatal_latched;
 }
 

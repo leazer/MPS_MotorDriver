@@ -6,6 +6,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HEADER = ROOT / "communication" / "can_at32m412.h"
 SOURCE = ROOT / "communication" / "can_at32m412.c"
 INTERRUPTS = ROOT / "project" / "src" / "at32m412_416_int.c"
+MOTOR_APP = ROOT / "application" / "motor_app.c"
 
 
 def read(path):
@@ -178,9 +179,9 @@ def test_init_disables_all_filters_before_enabling_exactly_two():
         "init must enable filters only through the exact-filter helper"
 
 
-def test_interrupts_are_enabled_at_priority_three():
+def test_edge_triggered_interrupts_are_enabled_at_priority_three():
     body = function_body(read(SOURCE), "can_at32m412_init")
-    for interrupt in ("CAN_RIE_INT", "CAN_TPIE_INT", "CAN_EPIE_INT", "CAN_EIE_INT", "CAN_BEIE_INT", "CAN_ROIE_INT"):
+    for interrupt in ("CAN_RIE_INT", "CAN_TPIE_INT", "CAN_ROIE_INT"):
         assert interrupt in body
     for irq in ("CAN1_RX_IRQn", "CAN1_TX_IRQn", "CAN1_STAT_IRQn", "CAN1_ERR_IRQn"):
         assert re.search(rf"nvic_irq_enable\s*\(\s*{irq}\s*,\s*3u\s*,\s*0u?\s*\)", body), irq
@@ -336,6 +337,34 @@ def test_status_error_capture_is_latched_and_saturating():
     assert "can_snapshot_error_state();" in status
     assert "can_snapshot_error_state();" in error
     assert "can_flag_clear" in status and "can_flag_clear" in error
+
+
+def test_persistent_error_states_are_polled_instead_of_interrupt_driven():
+    source = read(SOURCE)
+    init = function_body(source, "can_at32m412_init")
+    fatal = function_body(source, "can_at32m412_fatal_bus_error")
+    app_run = function_body(read(MOTOR_APP), "motor_app_run")
+
+    interrupt_call = re.search(
+        r"can_interrupt_enable\s*\(\s*CAN1\s*,(.*?)\,\s*TRUE\s*\)\s*;",
+        init,
+        re.DOTALL,
+    )
+    assert interrupt_call, "missing CAN interrupt enable call"
+    enabled_sources = interrupt_call.group(1)
+    for persistent_source in ("CAN_EIE_INT", "CAN_BEIE_INT", "CAN_EPIE_INT"):
+        assert persistent_source not in enabled_sources, (
+            f"{persistent_source} can retrigger continuously while EWARN/EPASS remains set"
+        )
+    assert "CAN_ROIE_INT" in enabled_sources
+    assert "can_snapshot_error_state();" in fatal
+    assert fatal.index("nvic_irq_disable(CAN1_ERR_IRQn);") < fatal.index(
+        "can_snapshot_error_state();"
+    )
+    assert fatal.index("can_snapshot_error_state();") < fatal.index(
+        "nvic_irq_enable(CAN1_ERR_IRQn, CAN_IRQ_PRIORITY, 0u);"
+    )
+    assert "can_at32m412_fatal_bus_error()" in app_run
 
 
 def test_diagnostic_counter_increment_saturates_at_uint32_max():
