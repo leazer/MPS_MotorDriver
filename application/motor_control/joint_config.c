@@ -6,10 +6,10 @@
 #define JOINT_CONFIG_FULL_TURN_MDEG 360000LL
 #define JOINT_CONFIG_RAW16_TURN     65536LL
 
-_Static_assert(sizeof(joint_config_record_t) == 36u,
-               "joint config record must be 36 bytes");
-_Static_assert(offsetof(joint_config_record_t, crc32) == 32u,
-               "joint config crc must follow 32 data bytes");
+typedef char joint_config_record_size_must_be_36[
+    sizeof(joint_config_record_t) == 36u ? 1 : -1];
+typedef char joint_config_crc32_offset_must_be_32[
+    offsetof(joint_config_record_t, crc32) == 32u ? 1 : -1];
 
 uint32_t joint_config_crc32(const uint8_t *data, uint32_t length)
 {
