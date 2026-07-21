@@ -1,7 +1,6 @@
 #include "motor_app.h"
 #include <limits.h>
 #include <rtthread.h>   /* rt_thread_mdelay */
-#include "at32m412_416.h"
 #include "motor_control.h"
 #include "fault_manager.h"
 #include "motor_calibration.h"
@@ -62,20 +61,22 @@ static int32_t motor_app_can_position_mdeg(void)
 static int32_t motor_app_can_velocity_mdeg_s(void)
 {
     float velocity_mdeg_s;
+    int32_t control_velocity_mdeg_s;
 
     velocity_mdeg_s = encoder_tracker_get_speed_rad_s() *
                       MOTOR_APP_RAD_S_TO_MDEG_S /
                       (float)MOTOR_POLE_PAIRS;
     if (velocity_mdeg_s != velocity_mdeg_s) {
-        return 0;
+        control_velocity_mdeg_s = 0;
+    } else if (velocity_mdeg_s >= (float)INT32_MAX) {
+        control_velocity_mdeg_s = INT32_MAX;
+    } else if (velocity_mdeg_s <= (float)INT32_MIN) {
+        control_velocity_mdeg_s = INT32_MIN;
+    } else {
+        control_velocity_mdeg_s = (int32_t)velocity_mdeg_s;
     }
-    if (velocity_mdeg_s >= (float)INT32_MAX) {
-        return INT32_MAX;
-    }
-    if (velocity_mdeg_s <= (float)INT32_MIN) {
-        return INT32_MIN;
-    }
-    return (int32_t)velocity_mdeg_s;
+    return position_loop_control_to_joint_velocity_mdeg_s(
+        control_velocity_mdeg_s);
 }
 
 static uint16_t motor_app_can_vbus_10mv(void)
@@ -99,28 +100,12 @@ static uint32_t motor_app_can_fault_get(void)
 
 static void motor_app_can_fault_set(uint32_t bits)
 {
-    uint32_t primask;
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    fault_manager_set(bits);
-    __DMB();
-    if (primask == 0u) {
-        __enable_irq();
-    }
+    fault_manager_set_bits(bits);
 }
 
 static void motor_app_can_fault_clear(void)
 {
-    uint32_t primask;
-
-    primask = __get_PRIMASK();
-    __disable_irq();
-    fault_manager_clear(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);
-    __DMB();
-    if (primask == 0u) {
-        __enable_irq();
-    }
+    fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);
 }
 
 static const can_motion_ops_t s_can_motion_ops = {

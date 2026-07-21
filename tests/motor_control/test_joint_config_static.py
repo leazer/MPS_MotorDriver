@@ -126,12 +126,30 @@ def assert_service_disabled_contract(service):
     assert "if (!joint_config_service_motor_disabled()) { return false; }" in erase_body
 
 
+def assert_service_direction_contract(service):
+    poll_body = normalized_source(function_body(
+        service, "void joint_config_service_poll(void)"
+    ))
+    capture_body = normalized_source(function_body(
+        service, "bool joint_config_service_capture(uint8_t node_id,"
+    ))
+    assert (
+        "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg, s_record.joint_direction)"
+    ) in poll_body
+    assert (
+        "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg, verified.joint_direction)"
+    ) in capture_body
+
+
 def test_contract_checkers_reject_incomplete_mutations():
     shell = read(SHELL)
     service = read(SERVICE_SOURCE)
 
     assert_joint_shell_behavior_contract(shell)
     assert_service_disabled_contract(service)
+    assert_service_direction_contract(service)
     shell_mutations = [
         (
             "static void joint_cfg_set(int argc, char **argv)",
@@ -196,6 +214,16 @@ def test_contract_checkers_reject_incomplete_mutations():
     ]
     service_mutations = [
         (
+            "void joint_config_service_poll(void)",
+            "s_record.joint_direction",
+            "1",
+        ),
+        (
+            "bool joint_config_service_capture(uint8_t node_id,",
+            "verified.joint_direction",
+            "1",
+        ),
+        (
             "static bool joint_config_service_motor_disabled(void)",
             "motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED",
             "true",
@@ -246,12 +274,11 @@ def test_contract_checkers_reject_incomplete_mutations():
             replacement,
         )
     for signature, needle, replacement in service_mutations:
+        check = (assert_service_direction_contract
+                 if "joint_direction" in needle
+                 else assert_service_disabled_contract)
         assert_function_mutation_rejected(
-            assert_service_disabled_contract,
-            service,
-            signature,
-            needle,
-            replacement,
+            check, service, signature, needle, replacement
         )
 
 
@@ -414,8 +441,8 @@ def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
     assert "joint_config_restore_angle" in poll_body
     assert "snapshot.corrected_raw16" in poll_body
     assert (
-        "position_loop_set_origin(snapshot.control_position_mdeg, "
-        "restored_joint_mdeg)"
+        "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg, s_record.joint_direction)"
     ) in normalized_source(poll_body)
 
     assert "encoder_service_get_snapshot" in capture_body
@@ -428,12 +455,12 @@ def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
     assert "memcmp" in capture_body
     assert "joint_config_restore_angle" in capture_body
     assert (
-        "position_loop_set_origin(snapshot.control_position_mdeg, "
-        "restored_joint_mdeg)"
+        "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg, verified.joint_direction)"
     ) in normalized_source(capture_body)
     assert capture_body.index("flash_joint_config_write_next") < capture_body.rindex(
         "flash_joint_config_read_latest"
-    ) < capture_body.index("position_loop_set_origin")
+    ) < capture_body.index("position_loop_set_joint_origin")
 
 
 def test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash():

@@ -32,9 +32,16 @@ typedef struct {
 
 void position_loop_init(void);
 void position_loop_reset(void);
+bool position_loop_set_joint_origin(int32_t sensor_mdeg, int32_t joint_mdeg,
+                                    int8_t joint_direction);
 void position_loop_set_origin(int32_t sensor_mdeg, int32_t joint_mdeg);
+int8_t position_loop_joint_direction(void);
 bool position_loop_origin_valid(void);
 int32_t position_loop_sensor_to_joint_mdeg(int32_t sensor_mdeg);
+int32_t position_loop_control_to_joint_velocity_mdeg_s(
+    int32_t control_velocity_mdeg_s);
+bool position_loop_first_target_safe(int32_t sensor_mdeg,
+                                     int32_t target_joint_mdeg);
 bool position_loop_submit(const position_setpoint_t *setpoint);
 float position_loop_run(int32_t sensor_mdeg);
 float position_loop_get_iq_feedforward_A(void);

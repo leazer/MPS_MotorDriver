@@ -30,9 +30,12 @@ typedef enum {
                            FAULT_CAN_TIMEOUT | FAULT_CURRENT_SAMPLE | \
                            FAULT_POSITION_TRACKING | FAULT_CAN_BUS)
 
+/* Boot-time absolute reset. Call before interrupt-driven fault writers start. */
 void fault_manager_init(void);
-void fault_manager_set(uint32_t fault);
-void fault_manager_clear(uint32_t fault);
+/* Atomic bit updates preserve concurrently latched unrelated fault bits. */
+void fault_manager_set_bits(uint32_t bits);
+void fault_manager_clear_bits(uint32_t bits);
+/* Absolute runtime reset is allowed only after an all-disabled output gate. */
 void fault_manager_clear_all(void);
 uint32_t fault_manager_get(void);
 bool fault_manager_any(void);

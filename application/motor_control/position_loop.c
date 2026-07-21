@@ -14,7 +14,9 @@ static uint32_t s_consumed_generation;
 static uint16_t s_last_submitted_sequence;
 static uint8_t s_has_submitted_sequence;
 
-static volatile int32_t s_joint_offset_mdeg;
+static volatile int32_t s_sensor_anchor_mdeg;
+static volatile int32_t s_joint_anchor_mdeg;
+static volatile int8_t s_joint_direction;
 static volatile uint8_t s_origin_valid;
 
 static position_setpoint_t s_active_setpoint;
@@ -97,7 +99,9 @@ static bool position_consume_setpoint(position_setpoint_t *out)
 
 void position_loop_init(void)
 {
-    s_joint_offset_mdeg = 0;
+    s_sensor_anchor_mdeg = 0;
+    s_joint_anchor_mdeg = 0;
+    s_joint_direction = 1;
     s_origin_valid = 0u;
     position_loop_reset();
 }
@@ -125,13 +129,30 @@ void position_loop_reset(void)
     s_snapshot.origin_valid = origin_valid;
 }
 
-void position_loop_set_origin(int32_t sensor_mdeg, int32_t joint_mdeg)
+bool position_loop_set_joint_origin(int32_t sensor_mdeg, int32_t joint_mdeg,
+                                    int8_t joint_direction)
 {
+    if (joint_direction != 1 && joint_direction != -1) {
+        return false;
+    }
+
     position_loop_reset();
-    s_joint_offset_mdeg = position_saturate_i64(
-        (int64_t)joint_mdeg - (int64_t)sensor_mdeg);
+    s_sensor_anchor_mdeg = sensor_mdeg;
+    s_joint_anchor_mdeg = joint_mdeg;
+    s_joint_direction = joint_direction;
     s_origin_valid = 1u;
     s_snapshot.origin_valid = 1u;
+    return true;
+}
+
+void position_loop_set_origin(int32_t sensor_mdeg, int32_t joint_mdeg)
+{
+    (void)position_loop_set_joint_origin(sensor_mdeg, joint_mdeg, 1);
+}
+
+int8_t position_loop_joint_direction(void)
+{
+    return s_joint_direction;
 }
 
 bool position_loop_origin_valid(void)
@@ -141,8 +162,32 @@ bool position_loop_origin_valid(void)
 
 int32_t position_loop_sensor_to_joint_mdeg(int32_t sensor_mdeg)
 {
-    return position_saturate_i64((int64_t)sensor_mdeg +
-                                 (int64_t)s_joint_offset_mdeg);
+    return position_saturate_i64(
+        (int64_t)s_joint_anchor_mdeg +
+        ((int64_t)s_joint_direction *
+         ((int64_t)sensor_mdeg - (int64_t)s_sensor_anchor_mdeg)));
+}
+
+int32_t position_loop_control_to_joint_velocity_mdeg_s(
+    int32_t control_velocity_mdeg_s)
+{
+    return position_saturate_i64((int64_t)s_joint_direction *
+                                 (int64_t)control_velocity_mdeg_s);
+}
+
+bool position_loop_first_target_safe(int32_t sensor_mdeg,
+                                     int32_t target_joint_mdeg)
+{
+    int32_t current_joint_mdeg;
+    int64_t error_mdeg;
+
+    if (s_origin_valid == 0u) {
+        return false;
+    }
+    current_joint_mdeg = position_loop_sensor_to_joint_mdeg(sensor_mdeg);
+    error_mdeg = (int64_t)target_joint_mdeg - (int64_t)current_joint_mdeg;
+    return error_mdeg >= -(int64_t)POSITION_MAX_ERROR_MDEG &&
+           error_mdeg <= (int64_t)POSITION_MAX_ERROR_MDEG;
 }
 
 bool position_loop_submit(const position_setpoint_t *setpoint)
@@ -257,7 +302,8 @@ float position_loop_run(int32_t sensor_mdeg)
              PID_POSITION_KP * (float)s_snapshot.error_mdeg) *
             POSITION_MDEG_TO_RAD;
         s_speed_ref_elec_rad_s = position_clamp(
-            speed_mech_rad_s * (float)MOTOR_POLE_PAIRS,
+            speed_mech_rad_s * (float)s_joint_direction *
+                (float)MOTOR_POLE_PAIRS,
             POSITION_SPEED_LIMIT_ELEC_RAD_S);
         s_iq_feedforward_A = 0.0f;
         if (s_speed_ref_elec_rad_s != 0.0f) {

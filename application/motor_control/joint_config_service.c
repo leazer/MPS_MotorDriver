@@ -63,8 +63,11 @@ void joint_config_service_poll(void)
         return;
     }
 
-    position_loop_set_origin(snapshot.control_position_mdeg,
-                             restored_joint_mdeg);
+    if (!position_loop_set_joint_origin(snapshot.control_position_mdeg,
+                                        restored_joint_mdeg,
+                                        s_record.joint_direction)) {
+        return;
+    }
     s_restored_joint_mdeg = restored_joint_mdeg;
     s_restored_joint_valid = true;
     s_ready = true;
@@ -133,8 +136,11 @@ bool joint_config_service_capture(uint8_t node_id,
         return false;
     }
 
-    position_loop_set_origin(snapshot.control_position_mdeg,
-                             restored_joint_mdeg);
+    if (!position_loop_set_joint_origin(snapshot.control_position_mdeg,
+                                        restored_joint_mdeg,
+                                        verified.joint_direction)) {
+        return false;
+    }
     s_record = verified;
     s_record_present = true;
     s_restored_joint_mdeg = restored_joint_mdeg;

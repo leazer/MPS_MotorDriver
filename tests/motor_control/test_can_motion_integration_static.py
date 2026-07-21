@@ -211,19 +211,23 @@ def assert_app_contract(app):
     assert "MOTOR_POLE_PAIRS" in velocity
     assert "MOTOR_APP_RAD_S_TO_MDEG_S" in velocity
     assert "INT32_MAX" in velocity and "INT32_MIN" in velocity
+    assert "position_loop_control_to_joint_velocity_mdeg_s" in velocity
     vbus = function_body(app, "static uint16_t motor_app_can_vbus_10mv(void)")
     assert "current_sense_at32m412_read_vbus()" in vbus
     assert "UINT16_MAX" in vbus and "100.0f" in vbus
     assert "fault_manager_get();" in function_body(
         app, "static uint32_t motor_app_can_fault_get(void)"
     )
-    assert "fault_manager_set(bits);" in function_body(
+    set_fault = function_body(
         app, "static void motor_app_can_fault_set(uint32_t bits)"
     )
+    assert "fault_manager_set_bits(bits);" in set_fault
+    assert "__disable_irq" not in set_fault
     clear_fault = function_body(app, "static void motor_app_can_fault_clear(void)")
-    assert "fault_manager_clear(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);" in normalized(
+    assert "fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);" in normalized(
         clear_fault
     )
+    assert "__disable_irq" not in clear_fault
     assert "fault_manager_clear_all" not in clear_fault
 
 
@@ -233,16 +237,12 @@ def assert_first_target_contract(source):
         "int motor_control_isr_position_start(const position_setpoint_t *setpoint)",
     ))
     required = [
-        "current_joint_mdeg = position_loop_sensor_to_joint_mdeg( "
-        "encoder.control_position_mdeg);",
-        "first_error_mdeg = (int64_t)setpoint->position_mdeg - "
-        "(int64_t)current_joint_mdeg;",
-        "if (first_error_mdeg > (int64_t)POSITION_MAX_ERROR_MDEG || "
-        "first_error_mdeg < -(int64_t)POSITION_MAX_ERROR_MDEG) { return -5; }",
+        "if (!position_loop_first_target_safe(encoder.control_position_mdeg, "
+        "setpoint->position_mdeg)) { return -5; }",
     ]
     for token in required:
         assert token in start
-    check_index = start.index(required[2])
+    check_index = start.index(required[0])
     assert check_index < start.index("position_loop_reset();")
     assert check_index < start.index("mc->state = MOTOR_CONTROL_STATE_ENABLED;")
     assert check_index < start.index("motor_pwm_at32m412_enable_output();")
@@ -259,7 +259,6 @@ def test_tmr6_is_exactly_1khz_and_isr_is_pure():
 def test_safe_init_run_callbacks_and_arm_contracts():
     app = read(APP_C)
     service = read(SERVICE_C)
-    assert '#include "at32m412_416.h"' in app
     assert_app_contract(app)
     arm = function_body(service, "static void process_arm(")
     assert "position_start" not in arm
@@ -313,8 +312,8 @@ def test_contract_checkers_reject_scoped_mutations():
         assert_first_target_contract,
         isr,
         "int motor_control_isr_position_start(const position_setpoint_t *setpoint)",
-        "first_error_mdeg > (int64_t)POSITION_MAX_ERROR_MDEG",
-        "first_error_mdeg > INT32_MAX",
+        "position_loop_first_target_safe",
+        "position_loop_origin_valid",
     )
 
 

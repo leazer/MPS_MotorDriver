@@ -21,14 +21,18 @@ def test_position_loop_public_contract():
         "position_loop_init",
         "position_loop_reset",
         "position_loop_set_origin",
+        "position_loop_set_joint_origin",
+        "position_loop_joint_direction",
         "position_loop_origin_valid",
         "position_loop_sensor_to_joint_mdeg",
+        "position_loop_control_to_joint_velocity_mdeg_s",
+        "position_loop_first_target_safe",
         "position_loop_submit",
         "position_loop_run",
         "position_loop_get_iq_feedforward_A",
         "position_loop_get_snapshot",
     ]:
-        assert token in header
+        assert token in header, token
 
 
 def test_position_loop_has_coherent_publish_and_bounded_extrapolation():
@@ -61,6 +65,7 @@ def test_position_loop_uses_mechanical_units_and_pole_pairs_once():
     assert "180000.0f" in source
     assert "MOTOR_POLE_PAIRS" in source
     assert source.count("(float)MOTOR_POLE_PAIRS") == 1
+    assert "speed_mech_rad_s * (float)s_joint_direction" in source
 
 
 def test_position_loop_is_in_both_target_builds():

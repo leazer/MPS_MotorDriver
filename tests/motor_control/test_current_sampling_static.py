@@ -173,12 +173,12 @@ def test_all_fatal_current_faults_use_state_latching_helper():
     helper = function_body(source, "current_fault_latch")
     tick = function_body(source, "motor_control_isr_tick")
     fatal_branch = tick.index("fault_manager_any_fatal()")
-    assert "fault_manager_set(fault)" in helper
+    assert "fault_manager_set_bits(fault)" in helper
     assert "mc->state = MOTOR_CONTROL_STATE_FAULT" in helper
     assert tick[:fatal_branch].count("current_fault_latch(mc, FAULT_OVERCURRENT)") == 2
     assert tick[:fatal_branch].count("current_fault_latch(mc, FAULT_CURRENT_SAMPLE)") == 1
-    assert "fault_manager_set(FAULT_OVERCURRENT)" not in tick
-    assert "fault_manager_set(FAULT_CURRENT_SAMPLE)" not in tick
+    assert "fault_manager_set_bits(FAULT_OVERCURRENT)" not in tick
+    assert "fault_manager_set_bits(FAULT_CURRENT_SAMPLE)" not in tick
 
 
 def test_shell_reports_sample_quality_and_fault_name():

@@ -198,7 +198,12 @@ static bool motor_shell_reject_if_running(void)
     const motor_control_t *mc;
 
     mc = motor_app_get_control();
-    if (motor_control_get_state(mc) == MOTOR_CONTROL_STATE_ENABLED) {
+    if (motor_control_get_state(mc) != MOTOR_CONTROL_STATE_DISABLED ||
+        motor_control_isr_open_loop_active() ||
+        motor_control_isr_align_active() ||
+        motor_control_isr_current_active() ||
+        motor_control_isr_speed_active() ||
+        motor_control_isr_position_active()) {
         rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
         return true;
     }
@@ -908,6 +913,9 @@ MSH_CMD_EXPORT(fault, show fault flags);
 static void fault_clear(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
     fault_manager_clear_all();
     rt_kprintf("all faults cleared\n");
 }

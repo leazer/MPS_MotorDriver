@@ -82,12 +82,12 @@ void motor_calibration_load(void)
         g_motor_zero_raw = s_cal.mech_zero_raw;
         encoder_service_set_zero(g_motor_zero_raw);
         encoder_service_set_calibration_table(s_cal.table, true);
-        fault_manager_clear(FAULT_CAL_INVALID);
+        fault_manager_clear_bits(FAULT_CAL_INVALID);
     } else {
         s_cal_valid = false;
         encoder_service_set_calibration_table(0, false);
         /* spec §4.7.7: 失败时置 FAULT_CAL_INVALID (告警级, 不阻止使能) */
-        fault_manager_set(FAULT_CAL_INVALID);
+        fault_manager_set_bits(FAULT_CAL_INVALID);
     }
 }
 
@@ -411,7 +411,7 @@ void motor_calibration_poll(void)
         case CAL_STATE_WRITE_FLASH: {
             bool ok;
             if (!s_cal_quality.quality_ok) {
-                fault_manager_set(FAULT_CAL_INVALID);
+                fault_manager_set_bits(FAULT_CAL_INVALID);
                 s_cal_state = CAL_STATE_ABORTED;
                 break;
             }
@@ -430,7 +430,7 @@ void motor_calibration_poll(void)
                 s_cal_valid = true;
                 encoder_service_set_zero(g_motor_zero_raw);
                 encoder_service_set_calibration_table(s_cal.table, true);
-                fault_manager_clear(FAULT_CAL_INVALID);
+                fault_manager_clear_bits(FAULT_CAL_INVALID);
                 s_cal_state = CAL_STATE_DONE;
             } else {
                 /* 写入失败, abort 但保留旧标定 (若有) */

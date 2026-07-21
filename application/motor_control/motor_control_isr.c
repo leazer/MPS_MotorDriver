@@ -260,7 +260,7 @@ void motor_control_isr_sampling_init(void)
 
 static void current_fault_latch(motor_control_t *mc, uint32_t fault)
 {
-    fault_manager_set(fault);
+    fault_manager_set_bits(fault);
     mc->state = MOTOR_CONTROL_STATE_FAULT;
 }
 
@@ -429,7 +429,7 @@ void motor_control_isr_tick(void)
         }
 
         if (age >= ENC_FAIL_THRESHOLD) {
-            fault_manager_set(FAULT_SENSOR);
+            fault_manager_set_bits(FAULT_SENSOR);
         }
     }
 
@@ -1024,8 +1024,6 @@ int motor_control_isr_position_start(const position_setpoint_t *setpoint)
 {
     motor_control_t *mc;
     encoder_snapshot_t encoder;
-    int32_t current_joint_mdeg;
-    int64_t first_error_mdeg;
 
     if (setpoint == 0) {
         return -2;
@@ -1045,12 +1043,8 @@ int motor_control_isr_position_start(const position_setpoint_t *setpoint)
         return -1;
     }
 
-    current_joint_mdeg = position_loop_sensor_to_joint_mdeg(
-        encoder.control_position_mdeg);
-    first_error_mdeg = (int64_t)setpoint->position_mdeg -
-                       (int64_t)current_joint_mdeg;
-    if (first_error_mdeg > (int64_t)POSITION_MAX_ERROR_MDEG ||
-        first_error_mdeg < -(int64_t)POSITION_MAX_ERROR_MDEG) {
+    if (!position_loop_first_target_safe(encoder.control_position_mdeg,
+                                         setpoint->position_mdeg)) {
         return -5;
     }
 
