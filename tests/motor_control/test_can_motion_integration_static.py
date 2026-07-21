@@ -8,6 +8,11 @@ TIMER_C = ROOT / "platform" / "at32m412" / "can_motion_timer_at32m412.c"
 APP_C = ROOT / "application" / "motor_app.c"
 ISR_C = ROOT / "application" / "motor_control" / "motor_control_isr.c"
 SERVICE_C = ROOT / "application" / "motor_control" / "can_motion_service.c"
+SERVICE_H = ROOT / "application" / "motor_control" / "can_motion_service.h"
+SHELL_C = ROOT / "application" / "motor_shell.c"
+CAN_H = ROOT / "communication" / "can_at32m412.h"
+CAN_C = ROOT / "communication" / "can_at32m412.c"
+USART_DMA_H = ROOT / "platform" / "at32m412" / "board_usart1_dma.h"
 CMAKE = ROOT / "CMakeLists.txt"
 UVPROJ = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
 
@@ -254,6 +259,80 @@ def assert_first_target_contract(source):
     assert check_index < start.index("motor_pwm_at32m412_enable_output();")
 
 
+def assert_can_shell_contract(shell):
+    status = normalized(function_body(shell, "static void can_status("))
+    reset = normalized(function_body(shell, "static void can_diag_reset("))
+    assert "can_motion_service_get_snapshot(&motion)" in status
+    assert "can_at32m412_get_diag(&driver);" in status
+    assert "fault_manager_get();" in status
+    assert "0x43414E31u" in status
+    checksum_start = status.index("check =")
+    checksum = status[checksum_start:status.index("rt_kprintf", checksum_start)]
+    xor_order = [
+        "motion.node_id", "motion.state", "motion.session",
+        "motion.pending_sequence", "motion.applied_sequence",
+        "motion.pending_age_ms", "motion.sync_age_ms", "motion.rx_frames",
+        "motion.tx_frames", "motion.protocol_errors", "driver.rx_overflow",
+        "driver.bus_off_events", "driver.tx_errors", "fault;",
+    ]
+    positions = [checksum.index(token) for token in xor_order]
+    assert positions == sorted(positions)
+    assert (
+        '"cs id=%u s=%u se=%u p=%u a=%u pa=%u sa=%u " '
+        '"rx=%lu tx=%lu pe=%lu ro=%lu bo=%lu te=%lu " '
+        '"f=%08X k=%08X\\n"'
+    ) in status
+    for mutator in ("can_motion_service_reset_diagnostics",
+                    "can_at32m412_reset_diagnostics", "set_joint_config",
+                    "force_stop"):
+        assert mutator not in status
+
+    assert "motor_shell_reject_if_running()" in reset
+    assert "can_motion_service_get_snapshot(&motion)" in reset
+    assert "motion.state != CAN_NODE_STATE_READY" in reset
+    assert "gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN)" in reset
+    assert "can_motion_service_reset_diagnostics();" in reset
+    assert "can_at32m412_reset_diagnostics();" in reset
+    assert reset.index("motor_shell_reject_if_running") < reset.index(
+        "can_motion_service_reset_diagnostics"
+    )
+    assert reset.index("motion.state != CAN_NODE_STATE_READY") < reset.index(
+        "can_motion_service_reset_diagnostics"
+    )
+    assert reset.index("gpio_input_data_bit_read") < reset.index(
+        "can_motion_service_reset_diagnostics"
+    )
+
+
+def assert_reset_api_contract(service_h, service_c, can_h, can_c):
+    assert "void can_motion_service_reset_diagnostics(void);" in service_h
+    motion = normalized(function_body(
+        service_c, "void can_motion_service_reset_diagnostics(void)"
+    ))
+    for field in ("rx_frames", "tx_frames", "tx_failures", "protocol_errors"):
+        assert f"s_service.{field} = 0u;" in motion
+    for forbidden in ("state =", "session =", "node_id =", "fault_bits =",
+                      "clear_pending", "clear_sequence_window", "memset"):
+        assert forbidden not in motion
+    assert "can_motion_service_state_lock()" in motion
+    assert "can_motion_service_state_unlock(primask)" in motion
+
+    assert "uint32_t bus_off_events;" in can_h
+    assert "void can_at32m412_reset_diagnostics(void);" in can_h
+    driver = normalized(function_body(
+        can_c, "void can_at32m412_reset_diagnostics(void)"
+    ))
+    for field in ("rx_received", "rx_rejected", "rx_overflow", "tx_queued",
+                  "tx_completed", "tx_rejected", "tx_errors", "status_irqs",
+                  "error_irqs", "bus_off_events"):
+        assert f"s_diag.{field} = 0u;" in driver
+    for preserved in ("rec", "tec", "error_passive", "bus_off_latched",
+                      "fatal_latched"):
+        assert f"s_diag.{preserved} =" not in driver
+    assert "__get_PRIMASK()" in driver
+    assert "__disable_irq();" in driver
+
+
 def test_tmr6_is_exactly_1khz_and_isr_is_pure():
     header = read(TIMER_H)
     timer = read(TIMER_C)
@@ -273,6 +352,20 @@ def test_safe_init_run_callbacks_and_arm_contracts():
 
 def test_first_target_distance_is_checked_before_any_start_mutation():
     assert_first_target_contract(read(ISR_C))
+
+
+def test_checked_can_shell_and_reset_ownership_contracts():
+    assert_can_shell_contract(read(SHELL_C))
+    assert_reset_api_contract(read(SERVICE_H), read(SERVICE_C),
+                              read(CAN_H), read(CAN_C))
+    uart = read(USART_DMA_H)
+    assert "#define USART1_TX_STAGE_BUF_SIZE 256u" in uart
+    worst = (
+        "cs id=2 s=5 se=65535 p=65535 a=65535 pa=65535 sa=65535 "
+        "rx=4294967295 tx=4294967295 pe=4294967295 ro=4294967295 "
+        "bo=4294967295 te=4294967295 f=FFFFFFFF k=FFFFFFFF\r\n"
+    )
+    assert len(worst.encode("ascii")) < 256
 
 
 def test_contract_checkers_reject_scoped_mutations():
@@ -326,6 +419,16 @@ def test_contract_checkers_reject_scoped_mutations():
         "position_loop_first_target_safe",
         "position_loop_origin_valid",
     )
+    shell = read(SHELL_C)
+    assert_mutation_rejected(
+        assert_can_shell_contract, shell, "static void can_status(",
+        "0x43414E31u", "0x43414E30u"
+    )
+    assert_mutation_rejected(
+        assert_can_shell_contract, shell, "static void can_diag_reset(",
+        "motion.state != CAN_NODE_STATE_READY",
+        "motion.state != CAN_NODE_STATE_ARMED"
+    )
 
 
 def test_all_task_sources_are_linked_once_in_both_builds():
@@ -352,6 +455,7 @@ if __name__ == "__main__":
     test_tmr6_is_exactly_1khz_and_isr_is_pure()
     test_safe_init_run_callbacks_and_arm_contracts()
     test_first_target_distance_is_checked_before_any_start_mutation()
+    test_checked_can_shell_and_reset_ownership_contracts()
     test_contract_checkers_reject_scoped_mutations()
     test_all_task_sources_are_linked_once_in_both_builds()
     print("CAN motion integration static tests passed")

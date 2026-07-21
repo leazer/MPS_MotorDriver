@@ -57,6 +57,7 @@ static void can_diag_reset(void)
     s_diag.tx_errors = 0u;
     s_diag.status_irqs = 0u;
     s_diag.error_irqs = 0u;
+    s_diag.bus_off_events = 0u;
 }
 
 static void can_configure_exact_filter(can_filter_type filter_number, uint16_t id)
@@ -97,6 +98,9 @@ static void can_snapshot_error_state(void)
     s_diag.tec = can_transmit_error_counter_get(CAN1);
     s_diag.error_passive = (can_flag_get(CAN1, CAN_EPASS_FLAG) != RESET);
     if (can_busoff_get(CAN1) != RESET) {
+        if (!s_diag.bus_off_latched) {
+            can_sat_increment(&s_diag.bus_off_events);
+        }
         s_diag.bus_off_latched = true;
         s_diag.fatal_latched = true;
     }
@@ -272,6 +276,29 @@ void can_at32m412_get_diag(can_at32m412_diag_t *out)
     out->tx_errors = s_diag.tx_errors;
     out->status_irqs = s_diag.status_irqs;
     out->error_irqs = s_diag.error_irqs;
+    out->bus_off_events = s_diag.bus_off_events;
+}
+
+void can_at32m412_reset_diagnostics(void)
+{
+    uint32_t primask;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    s_diag.rx_received = 0u;
+    s_diag.rx_rejected = 0u;
+    s_diag.rx_overflow = 0u;
+    s_diag.tx_queued = 0u;
+    s_diag.tx_completed = 0u;
+    s_diag.tx_rejected = 0u;
+    s_diag.tx_errors = 0u;
+    s_diag.status_irqs = 0u;
+    s_diag.error_irqs = 0u;
+    s_diag.bus_off_events = 0u;
+    __DMB();
+    if (primask == 0u) {
+        __enable_irq();
+    }
 }
 
 bool can_at32m412_fatal_bus_error(void)

@@ -26,6 +26,7 @@ typedef struct {
     uint32_t tx_errors;
     uint32_t status_irqs;
     uint32_t error_irqs;
+    uint32_t bus_off_events;
 } can_at32m412_diag_t;
 
 bool can_at32m412_init(uint8_t node_id);
@@ -38,6 +39,8 @@ void can_at32m412_tx_kick(void);
  * but an interrupt may update another field between loads. Safety decisions must use
  * can_at32m412_fatal_bus_error(), whose fatal state is latched until successful init. */
 void can_at32m412_get_diag(can_at32m412_diag_t *out);
+/* Clears cumulative diagnostics only; live state and safety latches remain. */
+void can_at32m412_reset_diagnostics(void);
 bool can_at32m412_fatal_bus_error(void);
 
 void can_at32m412_irq_rx(void);

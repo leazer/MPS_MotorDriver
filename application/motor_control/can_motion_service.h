@@ -49,6 +49,8 @@ void can_motion_service_set_joint_config(bool ready, uint8_t node_id);
 void can_motion_service_tick_1ms(void);
 void can_motion_service_poll_tx(void);
 bool can_motion_service_get_snapshot(can_motion_snapshot_t *out);
+/* Clears cumulative transport/protocol counters only. */
+void can_motion_service_reset_diagnostics(void);
 void can_motion_service_force_stop(void);
 
 #ifdef __cplusplus

@@ -826,6 +826,42 @@ static void test_diagnostic_counters_saturate(void)
     assert(state.tx_failures == UINT32_MAX);
     assert(state.protocol_errors == UINT32_MAX);
 }
+
+static void test_diagnostic_reset_preserves_motion_state(void)
+{
+    can_motion_snapshot_t before;
+    can_motion_snapshot_t after;
+
+    reset_service();
+    configure_and_arm(17u, 0x3456u);
+    apply_first(1000, 20, 17u, 0x3456u);
+    enqueue(trajectory(1u, 1100, 30, 18u));
+    can_motion_service_tick_1ms();
+    can_motion_service_test_seed_counters(11u, 22u, 33u, 44u);
+    before = snapshot();
+    assert(before.state == CAN_NODE_STATE_RUNNING);
+    assert(before.pending_valid);
+    assert(before.applied_valid);
+    assert(before.position_active);
+    can_motion_service_reset_diagnostics();
+    after = snapshot();
+    assert(after.rx_frames == 0u);
+    assert(after.tx_frames == 0u);
+    assert(after.tx_failures == 0u);
+    assert(after.protocol_errors == 0u);
+    assert(after.node_id == before.node_id);
+    assert(after.state == before.state);
+    assert(after.session == before.session);
+    assert(after.pending_sequence == before.pending_sequence);
+    assert(after.pending_age_ms == before.pending_age_ms);
+    assert(after.pending_valid == before.pending_valid);
+    assert(after.applied_sequence == before.applied_sequence);
+    assert(after.applied_valid == before.applied_valid);
+    assert(after.sync_age_ms == before.sync_age_ms);
+    assert(after.position_active == before.position_active);
+    assert(after.joint_ready == before.joint_ready);
+    assert(after.fault_bits == before.fault_bits);
+}
 #endif
 
 int main(void)
@@ -848,6 +884,7 @@ int main(void)
     test_ages_saturate();
 #ifdef CAN_MOTION_SERVICE_TEST
     test_diagnostic_counters_saturate();
+    test_diagnostic_reset_preserves_motion_state();
 #endif
     puts("can motion service: PASS");
     return 0;

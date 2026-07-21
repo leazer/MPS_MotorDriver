@@ -51,6 +51,7 @@ def test_public_api_and_diagnostics_contract():
         r"bool\s+can_at32m412_tx_push\s*\(\s*const\s+can_frame_t\s*\*\s*frame\s*\)\s*;",
         r"void\s+can_at32m412_tx_kick\s*\(\s*void\s*\)\s*;",
         r"void\s+can_at32m412_get_diag\s*\(\s*can_at32m412_diag_t\s*\*\s*out\s*\)\s*;",
+        r"void\s+can_at32m412_reset_diagnostics\s*\(\s*void\s*\)\s*;",
         r"bool\s+can_at32m412_fatal_bus_error\s*\(\s*void\s*\)\s*;",
         r"void\s+can_at32m412_irq_rx\s*\(\s*void\s*\)\s*;",
         r"void\s+can_at32m412_irq_tx\s*\(\s*void\s*\)\s*;",
@@ -65,8 +66,40 @@ def test_public_api_and_diagnostics_contract():
         "rec", "tec", "error_passive", "bus_off_latched", "fatal_latched",
         "rx_received", "rx_rejected", "rx_overflow", "tx_queued",
         "tx_completed", "tx_rejected", "status_irqs", "error_irqs",
+        "bus_off_events",
     ):
         assert re.search(rf"\b{field}\s*;", header), f"missing diagnostic field {field}"
+
+
+def test_runtime_diagnostic_reset_is_atomic_and_preserves_live_safety_state():
+    source = read(SOURCE)
+    body = function_body(source, "can_at32m412_reset_diagnostics")
+    for field in (
+        "rx_received", "rx_rejected", "rx_overflow", "tx_queued",
+        "tx_completed", "tx_rejected", "tx_errors", "status_irqs",
+        "error_irqs", "bus_off_events",
+    ):
+        assert f"s_diag.{field} = 0u;" in body
+    for field in ("rec", "tec", "error_passive", "bus_off_latched",
+                  "fatal_latched"):
+        assert f"s_diag.{field} =" not in body
+    for field in ("s_node_id", "s_rx_head", "s_rx_tail", "s_tx_head",
+                  "s_tx_tail", "s_tx_active"):
+        assert f"{field} =" not in body
+    assert "__get_PRIMASK()" in body
+    assert "__disable_irq();" in body
+    assert body.index("__disable_irq();") < body.index("s_diag.rx_received = 0u;")
+    assert "__DMB();" in body
+
+
+def test_bus_off_event_counter_is_edge_triggered_and_saturating():
+    source = read(SOURCE)
+    snapshot = function_body(source, "can_snapshot_error_state")
+    assert "if (!s_diag.bus_off_latched)" in snapshot
+    assert "can_sat_increment(&s_diag.bus_off_events);" in snapshot
+    assert snapshot.index("if (!s_diag.bus_off_latched)") < snapshot.index(
+        "s_diag.bus_off_latched = true;"
+    )
 
 
 def test_init_rejects_invalid_nodes_before_hardware_and_configures_pins_clocks():
@@ -317,6 +350,7 @@ def test_diagnostic_getter_documents_and_implements_mixed_snapshot_contract():
         "rec", "tec", "error_passive", "bus_off_latched", "fatal_latched",
         "rx_received", "rx_rejected", "rx_overflow", "tx_queued",
         "tx_completed", "tx_rejected", "tx_errors", "status_irqs", "error_irqs",
+        "bus_off_events",
     ):
         assert f"out->{field} = s_diag.{field};" in getter
 

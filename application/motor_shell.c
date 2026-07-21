@@ -30,6 +30,8 @@
 #include "motor_params.h"
 #include "motor_app.h"
 #include "joint_config_service.h"
+#include "can_motion_service.h"
+#include "can_at32m412.h"
 
 static uint16_t s_position_shell_sequence;
 
@@ -732,6 +734,80 @@ static void mc_pos_status(int argc, char **argv)
                (unsigned)check);
 }
 MSH_CMD_EXPORT(mc_pos_status, show compact position loop status);
+
+/* ---- can_status: checked, compact CAN motion/driver diagnostics ---- */
+static void can_status(int argc, char **argv)
+{
+    can_motion_snapshot_t motion;
+    can_at32m412_diag_t driver;
+    uint32_t fault;
+    uint32_t check;
+
+    (void)argc; (void)argv;
+    if (!can_motion_service_get_snapshot(&motion)) {
+        rt_kprintf("FAIL: CAN motion snapshot unavailable\n");
+        return;
+    }
+    can_at32m412_get_diag(&driver);
+    fault = fault_manager_get();
+    check = 0x43414E31u ^
+            (uint32_t)motion.node_id ^
+            (uint32_t)motion.state ^
+            (uint32_t)motion.session ^
+            (uint32_t)motion.pending_sequence ^
+            (uint32_t)motion.applied_sequence ^
+            (uint32_t)motion.pending_age_ms ^
+            (uint32_t)motion.sync_age_ms ^
+            motion.rx_frames ^
+            motion.tx_frames ^
+            motion.protocol_errors ^
+            driver.rx_overflow ^
+            driver.bus_off_events ^
+            driver.tx_errors ^ fault;
+    rt_kprintf("cs id=%u s=%u se=%u p=%u a=%u pa=%u sa=%u "
+               "rx=%lu tx=%lu pe=%lu ro=%lu bo=%lu te=%lu "
+               "f=%08X k=%08X\n",
+               (unsigned)motion.node_id,
+               (unsigned)motion.state,
+               (unsigned)motion.session,
+               (unsigned)motion.pending_sequence,
+               (unsigned)motion.applied_sequence,
+               (unsigned)motion.pending_age_ms,
+               (unsigned)motion.sync_age_ms,
+               (unsigned long)motion.rx_frames,
+               (unsigned long)motion.tx_frames,
+               (unsigned long)motion.protocol_errors,
+               (unsigned long)driver.rx_overflow,
+               (unsigned long)driver.bus_off_events,
+               (unsigned long)driver.tx_errors,
+               (unsigned)fault,
+               (unsigned)check);
+}
+MSH_CMD_EXPORT(can_status, show checked CAN motion and driver diagnostics);
+
+/* ---- can_diag_reset: clear counters only while every output is safe ---- */
+static void can_diag_reset(int argc, char **argv)
+{
+    can_motion_snapshot_t motion;
+
+    (void)argc; (void)argv;
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
+    if (!can_motion_service_get_snapshot(&motion) ||
+        motion.state != CAN_NODE_STATE_READY) {
+        rt_kprintf("FAIL: can_diag_reset requires CAN READY\n");
+        return;
+    }
+    if (gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) != RESET) {
+        rt_kprintf("FAIL: can_diag_reset requires MP6540H EN=LOW\n");
+        return;
+    }
+    can_motion_service_reset_diagnostics();
+    can_at32m412_reset_diagnostics();
+    rt_kprintf("CAN diagnostics reset\n");
+}
+MSH_CMD_EXPORT(can_diag_reset, reset cumulative CAN diagnostics while stopped and READY);
 
 /* ---- joint_cfg_set: 捕获并持久化已知关节坐标 ---- */
 static void joint_cfg_set(int argc, char **argv)

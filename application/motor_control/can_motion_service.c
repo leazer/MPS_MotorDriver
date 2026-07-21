@@ -7,6 +7,12 @@
 #include "fault_manager.h"
 #include "motor_params.h"
 
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+#include "at32m412_416.h"
+#else
+#include <stdatomic.h>
+#endif
+
 #define CAN_MOTION_RX_BATCH_MAX       4u
 #define CAN_MOTION_PENDING_TIMEOUT_MS 30u
 #define CAN_MOTION_HOLD_TIMEOUT_MS    50u
@@ -44,6 +50,39 @@ typedef struct {
 } can_motion_service_t;
 
 static can_motion_service_t s_service;
+
+#if !defined(__CC_ARM) && !defined(__arm__) && !defined(__thumb__)
+static atomic_flag s_can_motion_host_lock = ATOMIC_FLAG_INIT;
+#endif
+
+static uint32_t can_motion_service_state_lock(void)
+{
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+    uint32_t primask;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+#else
+    while (atomic_flag_test_and_set_explicit(&s_can_motion_host_lock,
+                                             memory_order_acquire)) {
+    }
+    return 0u;
+#endif
+}
+
+static void can_motion_service_state_unlock(uint32_t primask)
+{
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+    __DMB();
+    if (primask == 0u) {
+        __enable_irq();
+    }
+#else
+    (void)primask;
+    atomic_flag_clear_explicit(&s_can_motion_host_lock, memory_order_release);
+#endif
+}
 
 static void increment_u32(uint32_t *value)
 {
@@ -552,9 +591,12 @@ void can_motion_service_poll_tx(void)
 
 bool can_motion_service_get_snapshot(can_motion_snapshot_t *out)
 {
+    uint32_t primask;
+
     if (out == NULL) {
         return false;
     }
+    primask = can_motion_service_state_lock();
     out->node_id = s_service.node_id;
     out->state = s_service.state;
     out->session = s_service.session;
@@ -577,7 +619,20 @@ bool can_motion_service_get_snapshot(can_motion_snapshot_t *out)
     out->pending_valid = s_service.pending_valid;
     out->applied_valid = s_service.applied_valid;
     out->position_active = s_service.position_active;
+    can_motion_service_state_unlock(primask);
     return true;
+}
+
+void can_motion_service_reset_diagnostics(void)
+{
+    uint32_t primask;
+
+    primask = can_motion_service_state_lock();
+    s_service.rx_frames = 0u;
+    s_service.tx_frames = 0u;
+    s_service.tx_failures = 0u;
+    s_service.protocol_errors = 0u;
+    can_motion_service_state_unlock(primask);
 }
 
 void can_motion_service_force_stop(void)
