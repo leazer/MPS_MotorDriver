@@ -31,6 +31,17 @@ int main(void)
     assert(!fault_manager_any_fatal());
     assert(fault_manager_get() == FAULT_NONE);
 
-    printf("test_fault_manager: 6 tests passed\n");
+    fault_manager_set(FAULT_CAN_TIMEOUT);
+    assert(fault_manager_any_fatal());
+    fault_manager_clear(FAULT_CAN_TIMEOUT);
+    assert(!fault_manager_any_fatal());
+
+    fault_manager_set(FAULT_CAN_BUS);
+    assert(fault_manager_any_fatal());
+    assert(fault_manager_get() == FAULT_CAN_BUS);
+    fault_manager_clear(FAULT_CAN_BUS);
+    assert(!fault_manager_any_fatal());
+
+    printf("test_fault_manager: 8 tests passed\n");
     return 0;
 }
