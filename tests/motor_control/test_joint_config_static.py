@@ -31,6 +31,230 @@ def function_block(source, function_name, next_function_name):
     return source.split(function_name, 1)[1].split(next_function_name, 1)[0]
 
 
+def function_body(source, signature):
+    function_start = source.index(signature)
+    opening_brace = source.index("{", function_start)
+    depth = 0
+
+    for index in range(opening_brace, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening_brace + 1:index]
+    raise AssertionError(f"unterminated function body for {signature}")
+
+
+def assert_function_mutation_rejected(
+    check, source, signature, needle, replacement
+):
+    function_start = source.index(signature)
+    opening_brace = source.index("{", function_start)
+    body = function_body(source, signature)
+    mutation_offset = body.index(needle)
+    mutation_start = opening_brace + 1 + mutation_offset
+    mutated = (
+        source[:mutation_start]
+        + replacement
+        + source[mutation_start + len(needle):]
+    )
+    try:
+        check(mutated)
+    except AssertionError:
+        return
+    raise AssertionError(
+        f"contract checker accepted mutation in {signature}: {needle}"
+    )
+
+
+def assert_joint_shell_behavior_contract(shell):
+    set_body = normalized_source(function_body(
+        shell, "static void joint_cfg_set(int argc, char **argv)"
+    ))
+    show_body = normalized_source(function_body(
+        shell, "static void joint_cfg_show(int argc, char **argv)"
+    ))
+    erase_body = normalized_source(function_body(
+        shell, "static void joint_cfg_erase(int argc, char **argv)"
+    ))
+    parser_guard = (
+        "if (!motor_shell_parse_u32(argv[1], &node_id) || "
+        "!motor_shell_parse_i32(argv[2], &known_mdeg) || "
+        "!motor_shell_parse_i32(argv[3], &direction) || "
+        "!motor_shell_parse_i32(argv[4], &min_mdeg) || "
+        "!motor_shell_parse_i32(argv[5], &max_mdeg)) {"
+    )
+    validation_guard = (
+        "if (node_id < 1u || node_id > 2u || "
+        "(direction != -1 && direction != 1) || "
+        "min_mdeg > known_mdeg || known_mdeg > max_mdeg || "
+        "width_mdeg >= 360000LL) {"
+    )
+
+    assert "if (argc != 6) {" in set_body
+    assert "if (argc != 1) {" in show_body
+    assert "if (argc != 1) {" in erase_body
+    assert parser_guard in set_body
+    assert "width_mdeg = (int64_t)max_mdeg - (int64_t)min_mdeg" in set_body
+    assert validation_guard in set_body
+
+
+def assert_service_disabled_contract(service):
+    disabled_body = normalized_source(function_body(
+        service, "static bool joint_config_service_motor_disabled(void)"
+    ))
+    capture_body = normalized_source(function_body(
+        service,
+        "bool joint_config_service_capture(uint8_t node_id,",
+    ))
+    erase_body = normalized_source(function_body(
+        service, "bool joint_config_service_erase(void)"
+    ))
+    complete_gate = (
+        "return control != NULL && "
+        "motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED && "
+        "!motor_control_isr_open_loop_active() && "
+        "!motor_control_isr_align_active() && "
+        "!motor_control_isr_current_active() && "
+        "!motor_control_isr_speed_active() && "
+        "!motor_control_isr_position_active();"
+    )
+
+    assert complete_gate in disabled_body
+    assert "if (!joint_config_service_motor_disabled()) { return false; }" in capture_body
+    assert "if (!joint_config_service_motor_disabled()) { return false; }" in erase_body
+
+
+def test_contract_checkers_reject_incomplete_mutations():
+    shell = read(SHELL)
+    service = read(SERVICE_SOURCE)
+
+    assert_joint_shell_behavior_contract(shell)
+    assert_service_disabled_contract(service)
+    shell_mutations = [
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "if (argc != 6)",
+            "if (argc != 5)",
+        ),
+        (
+            "static void joint_cfg_show(int argc, char **argv)",
+            "if (argc != 1)",
+            "if (argc != 2)",
+        ),
+        (
+            "static void joint_cfg_erase(int argc, char **argv)",
+            "if (argc != 1)",
+            "if (argc != 2)",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "!motor_shell_parse_u32(argv[1], &node_id)",
+            "false",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "!motor_shell_parse_i32(argv[2], &known_mdeg)",
+            "false",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "!motor_shell_parse_i32(argv[3], &direction)",
+            "false",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "!motor_shell_parse_i32(argv[4], &min_mdeg)",
+            "false",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "!motor_shell_parse_i32(argv[5], &max_mdeg)",
+            "false",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "node_id < 1u || node_id > 2u",
+            "node_id < 0u || node_id > 3u",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "direction != -1 && direction != 1",
+            "direction != 0",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "min_mdeg > known_mdeg || known_mdeg > max_mdeg",
+            "min_mdeg > max_mdeg",
+        ),
+        (
+            "static void joint_cfg_set(int argc, char **argv)",
+            "width_mdeg >= 360000LL",
+            "width_mdeg > 360000LL",
+        ),
+    ]
+    service_mutations = [
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "!motor_control_isr_open_loop_active()",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "!motor_control_isr_align_active()",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "!motor_control_isr_current_active()",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "!motor_control_isr_speed_active()",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_motor_disabled(void)",
+            "!motor_control_isr_position_active()",
+            "true",
+        ),
+        (
+            "bool joint_config_service_capture(uint8_t node_id,",
+            "if (!joint_config_service_motor_disabled())",
+            "if (false)",
+        ),
+        (
+            "bool joint_config_service_erase(void)",
+            "if (!joint_config_service_motor_disabled())",
+            "if (false)",
+        ),
+    ]
+
+    for signature, needle, replacement in shell_mutations:
+        assert_function_mutation_rejected(
+            assert_joint_shell_behavior_contract,
+            shell,
+            signature,
+            needle,
+            replacement,
+        )
+    for signature, needle, replacement in service_mutations:
+        assert_function_mutation_rejected(
+            assert_service_disabled_contract,
+            service,
+            signature,
+            needle,
+            replacement,
+        )
+
+
 def test_flash_layout_reserves_two_joint_pages_before_calibration():
     params = read(PARAMS)
     linker = read(LINKER)
@@ -169,11 +393,7 @@ def test_joint_config_service_public_contract_and_app_integration():
 
 def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
     service = read(SERVICE_SOURCE)
-    disabled_gate = function_block(
-        service,
-        "static bool joint_config_service_motor_disabled",
-        "void joint_config_service_init",
-    )
+    assert_service_disabled_contract(service)
     init_body = function_block(
         service, "void joint_config_service_init", "void joint_config_service_poll"
     )
@@ -198,17 +418,6 @@ def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
         "restored_joint_mdeg)"
     ) in normalized_source(poll_body)
 
-    for token in [
-        "motor_control_get_state",
-        "MOTOR_CONTROL_STATE_DISABLED",
-        "motor_control_isr_open_loop_active",
-        "motor_control_isr_align_active",
-        "motor_control_isr_current_active",
-        "motor_control_isr_speed_active",
-        "motor_control_isr_position_active",
-    ]:
-        assert token in disabled_gate
-    assert "joint_config_service_motor_disabled()" in capture_body
     assert "encoder_service_get_snapshot" in capture_body
     assert "snapshot.valid" in capture_body
     assert "snapshot.corrected_raw16" in capture_body
@@ -229,27 +438,13 @@ def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
 
 def test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash():
     service = read(SERVICE_SOURCE)
-    disabled_gate = function_block(
-        service,
-        "static bool joint_config_service_motor_disabled",
-        "void joint_config_service_init",
-    )
+    assert_service_disabled_contract(service)
     erase_body = function_block(
         service,
         "bool joint_config_service_erase",
         "bool joint_config_service_get_status",
     )
 
-    for token in [
-        "motor_control_get_state",
-        "motor_control_isr_open_loop_active",
-        "motor_control_isr_align_active",
-        "motor_control_isr_current_active",
-        "motor_control_isr_speed_active",
-        "motor_control_isr_position_active",
-    ]:
-        assert token in disabled_gate
-    assert "joint_config_service_motor_disabled()" in erase_body
     assert erase_body.index("flash_joint_config_erase_all") < erase_body.index(
         "position_loop_init"
     )
@@ -259,6 +454,7 @@ def test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash():
 
 def test_joint_config_shell_commands_have_strict_parsing_and_full_status():
     shell = read(SHELL)
+    assert_joint_shell_behavior_contract(shell)
     signed_parser = function_block(
         shell, "static bool motor_shell_parse_i32", "static bool motor_shell_parse_u32"
     )
@@ -304,6 +500,7 @@ def test_joint_config_shell_commands_have_strict_parsing_and_full_status():
 
 
 if __name__ == "__main__":
+    test_contract_checkers_reject_incomplete_mutations()
     test_flash_layout_reserves_two_joint_pages_before_calibration()
     test_joint_storage_contract_uses_inactive_page_and_verified_word_write()
     test_write_next_structurally_preserves_active_page_and_locks_failures()
