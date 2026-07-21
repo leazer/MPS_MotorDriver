@@ -47,6 +47,9 @@ extern "C" {
 #define CAN_BITRATE                     500000u
 
 /* ===== 旁轴标定 (spec §4.7.3 / §4.7.4) ===== */
+#define JOINT_CFG_FLASH_A_ADDR          0x0801F400u
+#define JOINT_CFG_FLASH_B_ADDR          0x0801F800u
+#define JOINT_CFG_FLASH_PAGE_SIZE       1024u
 #define CAL_FLASH_ADDR                  0x0801FC00u
 #define CAL_FLASH_SIZE                  1024u
 #define CAL_MAGIC                       0x304C4143u   /* 'CAL0' little-endian */

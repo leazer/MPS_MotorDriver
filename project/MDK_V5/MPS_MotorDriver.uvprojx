@@ -17,7 +17,7 @@
           <Device>AT32M412KBU7-4</Device>
           <Vendor>ArteryTek</Vendor>
           <PackID>ArteryTek.AT32M412_416_DFP.2.0.4</PackID>
-          <Cpu>IRAM(0x20000000,0x4000) IROM(0x08000000,0x1FC00) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
+          <Cpu>IRAM(0x20000000,0x4000) IROM(0x08000000,0x1F400) CPUTYPE("Cortex-M4") FPU2 CLOCK(12000000) ELITTLE</Cpu>
           <FlashUtilSpec></FlashUtilSpec>
           <StartupFile></StartupFile>
           <FlashDriverDll>UL2CM3(-S0 -C0 -P0 -FD20000000 -FC1000 -FN1 -FF0AT32M412_128 -FS08000000 -FL00020000 -FP0($$Device:AT32M412KBU7-4$Flash\AT32M412_128.FLM))</FlashDriverDll>
@@ -251,7 +251,7 @@
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x1fc00</Size>
+                <Size>0x1F400</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -527,6 +527,11 @@
               <FileName>flash_calibration_at32m412.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\platform\at32m412\flash_calibration_at32m412.c</FilePath>
+            </File>
+            <File>
+              <FileName>flash_joint_config_at32m412.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\platform\at32m412\flash_joint_config_at32m412.c</FilePath>
             </File>
             <File>
               <FileName>clock_at32m412.c</FileName>
