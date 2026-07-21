@@ -8,6 +8,14 @@ LINKER = ROOT / "AT32M412xB_FLASH.ld"
 MDK = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
 HEADER = ROOT / "platform" / "at32m412" / "flash_joint_config_at32m412.h"
 SOURCE = ROOT / "platform" / "at32m412" / "flash_joint_config_at32m412.c"
+SERVICE_HEADER = (
+    ROOT / "application" / "motor_control" / "joint_config_service.h"
+)
+SERVICE_SOURCE = (
+    ROOT / "application" / "motor_control" / "joint_config_service.c"
+)
+APP = ROOT / "application" / "motor_app.c"
+SHELL = ROOT / "application" / "motor_shell.c"
 
 
 def read(path):
@@ -134,8 +142,173 @@ def test_write_next_structurally_preserves_active_page_and_locks_failures():
     assert all("flash_lock();" in failure for failure in failure_returns)
 
 
+def test_joint_config_service_public_contract_and_app_integration():
+    header = read(SERVICE_HEADER)
+    app = read(APP)
+
+    for token in [
+        "joint_config_service_init",
+        "joint_config_service_poll",
+        "joint_config_service_ready",
+        "joint_config_service_node_id",
+        "joint_config_service_capture",
+        "joint_config_service_erase",
+        "joint_config_service_get_status",
+    ]:
+        assert token in header
+
+    app_init = function_block(app, "void motor_app_init", "void motor_app_run")
+    app_run = app.split("void motor_app_run", 1)[1]
+    assert app_init.index("position_loop_init();") < app_init.index(
+        "joint_config_service_init();"
+    )
+    assert app_run.index("joint_config_service_poll();") < app_run.index(
+        "rt_thread_mdelay(10);"
+    )
+
+
+def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
+    service = read(SERVICE_SOURCE)
+    disabled_gate = function_block(
+        service,
+        "static bool joint_config_service_motor_disabled",
+        "void joint_config_service_init",
+    )
+    init_body = function_block(
+        service, "void joint_config_service_init", "void joint_config_service_poll"
+    )
+    poll_body = function_block(
+        service, "void joint_config_service_poll", "bool joint_config_service_ready"
+    )
+    capture_body = function_block(
+        service,
+        "bool joint_config_service_capture",
+        "bool joint_config_service_erase",
+    )
+
+    assert "flash_joint_config_read_latest" in init_body
+    assert "s_ready = false" in init_body
+    assert "if (s_ready" in poll_body
+    assert "encoder_service_get_snapshot" in poll_body
+    assert "snapshot.valid" in poll_body
+    assert "joint_config_restore_angle" in poll_body
+    assert "snapshot.corrected_raw16" in poll_body
+    assert (
+        "position_loop_set_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg)"
+    ) in normalized_source(poll_body)
+
+    for token in [
+        "motor_control_get_state",
+        "MOTOR_CONTROL_STATE_DISABLED",
+        "motor_control_isr_open_loop_active",
+        "motor_control_isr_align_active",
+        "motor_control_isr_current_active",
+        "motor_control_isr_speed_active",
+        "motor_control_isr_position_active",
+    ]:
+        assert token in disabled_gate
+    assert "joint_config_service_motor_disabled()" in capture_body
+    assert "encoder_service_get_snapshot" in capture_body
+    assert "snapshot.valid" in capture_body
+    assert "snapshot.corrected_raw16" in capture_body
+    assert "joint_config_make" in capture_body
+    assert "flash_joint_config_write_next" in capture_body
+    assert capture_body.count("flash_joint_config_read_latest") >= 2
+    assert "joint_config_record_valid" in capture_body
+    assert "memcmp" in capture_body
+    assert "joint_config_restore_angle" in capture_body
+    assert (
+        "position_loop_set_origin(snapshot.control_position_mdeg, "
+        "restored_joint_mdeg)"
+    ) in normalized_source(capture_body)
+    assert capture_body.index("flash_joint_config_write_next") < capture_body.rindex(
+        "flash_joint_config_read_latest"
+    ) < capture_body.index("position_loop_set_origin")
+
+
+def test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash():
+    service = read(SERVICE_SOURCE)
+    disabled_gate = function_block(
+        service,
+        "static bool joint_config_service_motor_disabled",
+        "void joint_config_service_init",
+    )
+    erase_body = function_block(
+        service,
+        "bool joint_config_service_erase",
+        "bool joint_config_service_get_status",
+    )
+
+    for token in [
+        "motor_control_get_state",
+        "motor_control_isr_open_loop_active",
+        "motor_control_isr_align_active",
+        "motor_control_isr_current_active",
+        "motor_control_isr_speed_active",
+        "motor_control_isr_position_active",
+    ]:
+        assert token in disabled_gate
+    assert "joint_config_service_motor_disabled()" in erase_body
+    assert erase_body.index("flash_joint_config_erase_all") < erase_body.index(
+        "position_loop_init"
+    )
+    assert "s_ready = false" in erase_body
+    assert "s_record_present = false" in erase_body
+
+
+def test_joint_config_shell_commands_have_strict_parsing_and_full_status():
+    shell = read(SHELL)
+    signed_parser = function_block(
+        shell, "static bool motor_shell_parse_i32", "static bool motor_shell_parse_u32"
+    )
+    unsigned_parser = function_block(
+        shell, "static bool motor_shell_parse_u32", "static void pwm_info"
+    )
+
+    for command in ["joint_cfg_set", "joint_cfg_show", "joint_cfg_erase"]:
+        assert f"static void {command}" in shell
+        assert f"MSH_CMD_EXPORT({command}" in shell
+    assert (
+        "joint_cfg_set <node_id> <known_mdeg> <direction> <min_mdeg> <max_mdeg>"
+        in shell
+    )
+    for token in [
+        "errno",
+        "ERANGE",
+        "end",
+        "INT32_MIN",
+        "INT32_MAX",
+        "joint_config_service_capture",
+        "joint_config_service_erase",
+        "joint_config_service_get_status",
+    ]:
+        assert token in shell
+    assert "motor_shell_decimal_string(text, true)" in signed_parser
+    assert "motor_shell_decimal_string(text, false)" in unsigned_parser
+    for label in [
+        "version",
+        "generation",
+        "node",
+        "zero_raw",
+        "known_mdeg",
+        "min_mdeg",
+        "max_mdeg",
+        "direction",
+        "crc_valid",
+        "encoder_ready",
+        "restored_joint_mdeg",
+        "service_ready",
+    ]:
+        assert label in shell
+
+
 if __name__ == "__main__":
     test_flash_layout_reserves_two_joint_pages_before_calibration()
     test_joint_storage_contract_uses_inactive_page_and_verified_word_write()
     test_write_next_structurally_preserves_active_page_and_locks_failures()
+    test_joint_config_service_public_contract_and_app_integration()
+    test_service_restores_once_from_valid_encoder_and_captures_corrected_raw()
+    test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash()
+    test_joint_config_shell_commands_have_strict_parsing_and_full_status()
     print("joint config static tests passed")

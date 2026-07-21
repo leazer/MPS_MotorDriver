@@ -7,6 +7,7 @@
 #include "motor_control_isr.h"
 #include "speed_loop.h"
 #include "position_loop.h"
+#include "joint_config_service.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
@@ -52,6 +53,7 @@ void motor_app_init(void)
     motor_control_isr_sampling_init();     /* 电流重构保护与诊断初始化 */
     speed_loop_init();                     /* Stage 6: 速度环 PI 参数初始化 */
     position_loop_init();                  /* Stage 7: 位置环与运行时关节零点 */
+    joint_config_service_init();           /* 恢复持久化关节坐标 */
     encoder_acq_timer_at32m412_init();     /* 4kHz 低优先级编码器采集 */
 }
 
@@ -60,6 +62,7 @@ void motor_app_run(void)
     while (1) {
         /* Stage 4b: 标定状态机推进 (线程上下文, 处理 ALIGN 等待/COMPUTE/WRITE_FLASH) */
         motor_calibration_poll();
+        joint_config_service_poll();
 
         /* 让出 CPU 给 finsh 线程 (优先级 21, 低于 main 的 10).
          * main 线程若死循环不让出, finsh 线程得不到调度, msh 提示符不出现. */
