@@ -24,6 +24,7 @@
 #include "board_motor_pins.h"
 #include "current_loop.h"
 #include "speed_loop.h"
+#include "position_loop.h"
 #include "current_reconstruction.h"
 #include <math.h>
 
@@ -65,6 +66,9 @@ static volatile float    s_cur_speed_rad_s;  /* ramp 模式角速度 (rad/s), �
 
 /* ===== Stage 6: SPEED 模式参数 (ISR 读, shell 写) ===== */
 static volatile bool     s_spd_active;      /* SPEED 模式是否激活 */
+
+/* ===== Stage 7: POSITION 模式参数 (ISR 读, shell/CAN 写) ===== */
+static volatile bool     s_pos_active;
 
 /* ===== 编码器读取状态 (Stage 4) ===== */
 static volatile uint16_t s_enc_raw16;        /* 最近一次编码器原始角度 (16-bit) */
@@ -590,10 +594,57 @@ void motor_control_isr_tick(void)
         }
 
         case MOTOR_CONTROL_MODE_POSITION:
-            /* Stage 7+ 实现, 暂输出 50% */
-            current_debug_clear_phase_voltage();
-            motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+        {
+            float id, iq;
+            float i_alpha, i_beta;
+            float vd_ref, vq_ref;
+            float iq_ref;
+            float position_speed_ref;
+            position_loop_snapshot_t position_snapshot;
+
+            if (!s_pos_active) {
+                current_debug_clear_phase_voltage();
+                motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+                return;
+            }
+
+            theta = s_enc_theta_e;
+            s_dbg_theta_mrad = (int32_t)(theta * RAD_TO_MRAD_F);
+            position_speed_ref = position_loop_run(
+                encoder_service_get_control_position_mdeg());
+            speed_loop_set_target_rad_s(position_speed_ref);
+            if (position_loop_get_snapshot(&position_snapshot) &&
+                position_snapshot.tracking_fault != 0u) {
+                current_fault_latch(mc, FAULT_POSITION_TRACKING);
+            }
+
+            if (sample.frame_valid) {
+                iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s());
+                current_loop_set_targets(0.0f, iq_ref);
+
+                foc_clarke(sample.ia, sample.ib, sample.ic, &i_alpha, &i_beta);
+                foc_park(i_alpha, i_beta, theta, &id, &iq);
+                s_dbg_id_ma = (int32_t)(id * 1000.0f);
+                s_dbg_iq_ma = (int32_t)(iq * 1000.0f);
+                current_debug_accumulate_average(s_dbg_id_ma, s_dbg_iq_ma);
+
+                current_loop_run(id, iq, &vd_ref, &vq_ref);
+                s_held_vd_ref = vd_ref;
+                s_held_vq_ref = vq_ref;
+            } else {
+                vd_ref = s_held_vd_ref;
+                vq_ref = s_held_vq_ref;
+            }
+
+            foc_ipark(vd_ref, vq_ref, theta, &v_alpha, &v_beta);
+            s_dbg_v_alpha_mv = (int32_t)(v_alpha * VOLTS_TO_MV_F);
+            s_dbg_v_beta_mv  = (int32_t)(v_beta  * VOLTS_TO_MV_F);
+            current_debug_publish_phase_voltage(v_alpha, v_beta);
+            foc_svpwm_3phase_high_side(v_alpha, v_beta, vbus, &ta, &tb, &tc);
+            s_dbg_ta = ta; s_dbg_tb = tb; s_dbg_tc = tc;
+            motor_pwm_at32m412_set_duty_ticks(ta, tb, tc);
             break;
+        }
 
         default:
             current_debug_clear_phase_voltage();
@@ -958,6 +1009,100 @@ void motor_control_isr_speed_stop(void)
 bool motor_control_isr_speed_active(void)
 {
     return s_spd_active;
+}
+
+/* ===== Stage 7: POSITION 模式接口 ===== */
+
+int motor_control_isr_position_start(const position_setpoint_t *setpoint)
+{
+    motor_control_t *mc;
+    encoder_snapshot_t encoder;
+
+    if (setpoint == 0) {
+        return -2;
+    }
+    if (!position_loop_origin_valid()) {
+        return -4;
+    }
+    if (!encoder_service_get_snapshot(&encoder) || encoder.valid == 0u) {
+        return -4;
+    }
+
+    mc = motor_app_get_control_rw();
+    if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
+    if (fault_manager_any_fatal()) {
+        return -1;
+    }
+
+    s_ol_active = false;
+    s_align_active = false;
+    s_cur_active = false;
+    s_spd_active = false;
+    s_ol_vd = 0.0f;
+    s_align_vd = 0.0f;
+    position_loop_reset();
+    speed_loop_reset();
+    current_loop_reset();
+    current_loop_set_targets(0.0f, 0.0f);
+    if (!position_loop_submit(setpoint)) {
+        return -2;
+    }
+    current_debug_reset_average();
+    encoder_tracker_reset();
+    current_sampling_runtime_reset();
+    s_pos_active = true;
+
+    mc->mode = MOTOR_CONTROL_MODE_POSITION;
+    mc->state = MOTOR_CONTROL_STATE_ENABLED;
+
+    motor_pwm_at32m412_enable_output();
+    motor_pwm_at32m412_enable_ovf_irq();
+    return 0;
+}
+
+int motor_control_isr_position_submit(const position_setpoint_t *setpoint)
+{
+    const motor_control_t *mc;
+
+    if (setpoint == 0) {
+        return -2;
+    }
+    mc = motor_app_get_control();
+    if (!s_pos_active || mc->state != MOTOR_CONTROL_STATE_ENABLED ||
+        mc->mode != MOTOR_CONTROL_MODE_POSITION) {
+        return -3;
+    }
+    return position_loop_submit(setpoint) ? 0 : -2;
+}
+
+void motor_control_isr_position_stop(void)
+{
+    motor_control_t *mc;
+
+    s_pos_active = false;
+    s_spd_active = false;
+    s_cur_active = false;
+    position_loop_reset();
+    speed_loop_reset();
+    current_loop_reset();
+    current_loop_set_targets(0.0f, 0.0f);
+    current_debug_reset_average();
+    encoder_tracker_reset();
+
+    motor_pwm_at32m412_disable_ovf_irq();
+    current_sampling_runtime_reset();
+    motor_pwm_at32m412_set_duty_ticks(TMR1_ARR / 2u, TMR1_ARR / 2u, TMR1_ARR / 2u);
+    motor_pwm_at32m412_disable_output();
+
+    mc = motor_app_get_control_rw();
+    mc->state = MOTOR_CONTROL_STATE_DISABLED;
+}
+
+bool motor_control_isr_position_active(void)
+{
+    return s_pos_active;
 }
 
 void motor_control_isr_get_debug(motor_control_isr_debug_t *dbg)

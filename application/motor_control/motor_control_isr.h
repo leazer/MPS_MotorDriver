@@ -8,6 +8,7 @@ extern "C" {
 #include <stdint.h>
 #include <stdbool.h>
 #include "motor_control.h"
+#include "position_loop.h"
 
 /* FOC ISR 主体, 由 TMR1_OVF 中断调用 (spec §3.1).
  *
@@ -92,6 +93,14 @@ void motor_control_isr_current_set_speed(float rad_per_s);
 int  motor_control_isr_speed_start(float target_rad_s);
 void motor_control_isr_speed_stop(void);
 bool motor_control_isr_speed_active(void);
+
+/* ===== POSITION 模式接口 (Stage 7) =====
+ * 机械位置/速度前馈由 position_setpoint_t 提交。首次 start 重置级联环，
+ * 后续 submit 只更新目标，不清位置/速度/电流环状态。 */
+int  motor_control_isr_position_start(const position_setpoint_t *setpoint);
+int  motor_control_isr_position_submit(const position_setpoint_t *setpoint);
+void motor_control_isr_position_stop(void);
+bool motor_control_isr_position_active(void);
 
 /* Initialize boot-lifetime current-sampling diagnostics and transient guard state. */
 void motor_control_isr_sampling_init(void);

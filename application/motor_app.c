@@ -6,6 +6,7 @@
 #include "current_loop.h"
 #include "motor_control_isr.h"
 #include "speed_loop.h"
+#include "position_loop.h"
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
 #include "motor_encoder_at32m412.h"
@@ -50,6 +51,7 @@ void motor_app_init(void)
     current_loop_init();                   /* Stage 5: 电流环 PID 参数初始化 */
     motor_control_isr_sampling_init();     /* 电流重构保护与诊断初始化 */
     speed_loop_init();                     /* Stage 6: 速度环 PI 参数初始化 */
+    position_loop_init();                  /* Stage 7: 位置环与运行时关节零点 */
     encoder_acq_timer_at32m412_init();     /* 4kHz 低优先级编码器采集 */
 }
 
