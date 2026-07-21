@@ -80,7 +80,7 @@ typedef struct {
 
 - `position_mdeg`：逻辑关节机械位置。
 - `velocity_mdeg_s`：逻辑关节机械速度前馈。
-- `sequence`：16 位单调序号，按半范围规则允许回绕；重复或倒序点拒绝。
+- `sequence`：16 位单调序号，按半范围规则允许回绕；倒序点拒绝。同序号且位置、速度、租约完全相同的点按幂等重发接受，内容不同则拒绝。
 - `lease_ms=0`：静态保持命令，不因缺少新点超时。
 - `lease_ms=100`：100 Hz 流式命令；100 ms 未收到更新时进入超时保持。
 
@@ -122,6 +122,8 @@ max_velocity_feedforward = 60 deg/s mechanical
 max_position_error = 30 deg
 ```
 
+自由轴实测增加仅在 POSITION 模式生效的库仑摩擦前馈：静态误差超过 0.2 deg 时为 80 mA，流式速度非零时为 40 mA。速度环本身的 20 mA 摩擦前馈和独立 SPEED 模式参数不变；位置级联总 `Iq_ref` 仍限制在 ±0.5 A。该分档用于克服静摩擦，同时避免运动中 80 mA 造成约 20% 的轨迹幅值超前。
+
 控制律不加入积分和微分。原因是绘图优先平滑轨迹，速度前馈承担主要动态跟踪，P 环只消除位置误差；位置积分会在限流或机构卡滞时积累，当前阶段收益小、风险高。
 
 超过位置误差、速度前馈或目标位置范围时拒绝启动/更新，而不是静默使用危险值。位置误差运行门限触发位置模式停止并报告故障；普通流式超时只进入保持。
@@ -133,7 +135,7 @@ POSITION 分支复用 SPEED 分支的编码器角度、电流采样、Clarke/Par
 1. 读取方向归一化的连续机械位置。
 2. 每 1 ms 更新位置环，得到电气速度目标。
 3. 调用 `speed_loop_set_target_rad_s()`，再执行现有 `speed_loop_run()`。
-4. 把速度环输出作为 Iq 目标执行现有电流环。
+4. 把速度环输出与 POSITION 专用摩擦前馈相加、钳位到 ±0.5 A，再作为 Iq 目标执行现有电流环。
 
 POSITION 模式启动只重置一次位置、速度和电流环；后续 setpoint 更新不得重置任何内环。
 
@@ -143,12 +145,13 @@ POSITION 模式启动只重置一次位置、速度和电流环；后续 setpoin
 mc_pos_zero [known_mdeg]
 mc_pos <position_mdeg>
 mc_pos_stream <sequence> <position_mdeg> <velocity_mdeg_s>
+mp <sequence> <position_mdeg> <velocity_mdeg_s>
 mc_pos_status
 mc_stop
 ```
 
 - `mc_pos` 用 `lease_ms=0` 启动或更新静态保持目标。
-- `mc_pos_stream` 用 `lease_ms=100` 启动或更新流式目标。
+- `mc_pos_stream` 用 `lease_ms=100` 启动或更新流式目标；`mp` 是相同命令的短别名，用于降低 COM9 调试链路的字符扰动概率。
 - 第一个位置命令从 DISABLED 启动 POSITION；运行中命令只提交新点。
 - 从 SPEED/CURRENT/OPEN_LOOP 等其他活动模式切入时拒绝，要求先 `mc_stop`。
 
@@ -170,7 +173,7 @@ mc_stop
 
 1. 捕获当前位置为 0，运行 +5 deg、-5 deg 静态阶跃。
 2. 运行 +10/-10 deg 反转和末点保持。
-3. 以 100 Hz 发送幅值 10 deg、峰值速度不超过 30 deg/s 的正弦位置与解析速度前馈。
+3. COM9 文本链路按 50 Hz 名义周期发送幅值 10 deg、峰值速度不超过 30 deg/s 的正弦位置与解析速度前馈；轨迹按实际点间隔推进，单次异常间隔钳到 40 ms，并单独报告有效点率与重试次数。生产 CAN 接口仍按 100 Hz 设计。
 4. 在动态段停止发送超过 100 ms，验证参考冻结、前馈归零、没有继续漂移。
 5. 重发更新序号，验证从保持平滑恢复。
 6. 最终验证 DISABLED、EN=LOW、三相 PWM=2812、CCR4=5264、fault=0。
@@ -179,7 +182,7 @@ mc_stop
 
 - 静态 ±5 deg 目标在稳定后绝对误差不超过 0.5 deg，无持续来回抖动。
 - ±10 deg 反转无失控，超调不超过目标幅值的 20%，Iq 绝对值不超过 0.5 A。
-- 100 Hz、10 deg 正弦轨迹的 P95 跟踪误差不超过 2 deg，末点速度前馈为零后能保持。
+- COM9 资格测试的 10 deg/30 deg/s 正弦轨迹 P95 跟踪误差不超过 2 deg，末点速度前馈为零后能保持；100 Hz CAN 时序留到 CAN 集成阶段实测。
 - 流式超时后 30 ms 内速度前馈清零且参考不再继续外推；电机保持而非继续运动。
 - 整段测试 fault=0，采样 invalid/freeze 不持续增长，串口帧全部通过校验。
 - 主机测试、静态检查和 ARMCC5 固件构建为 0 error、0 warning。
@@ -197,3 +200,5 @@ sequence           uint16 LE
 ```
 
 CAN 接收层把速度放大 10 倍、设置 `lease_ms=100` 后调用同一提交接口。双电机任务再增加 pending setpoint、广播 SYNC、节点状态反馈和 X-Track Transport，不修改本阶段位置控制律。
+
+对 X-Track `five-bar-motor-demo-offline` 的核对结论：`TrajectoryPoint` 已同时包含两关节位置与速度，规划周期固定为 10 ms，`IMotorTransport::Submit()` 的抽象也可直接承载该点；但 `CanMotorTransportStub` 仍主动阻止硬件运动。X-Track 侧已有 `HardwareCAN::write()` 基础，电机侧只有 CAN 引脚和 `can_protocol` stub，双方仍需共同冻结 CAN ID、节点号、状态/心跳和双电机同步策略后实现真实 Transport。控制器与轨迹数据结构之间不存在算法或量程阻塞。

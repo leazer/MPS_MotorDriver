@@ -260,6 +260,10 @@ Stage 4 (MA600A 有感角度闭环准备) + Stage 4b (旁轴非线性标定) 代
 | `mc_cal_status` | 标定状态/进度/残差 | 4b |
 | `mc_cal_dump` | 打印 256 点校正表 | 4b |
 | `mc_cal_erase` | 擦除 FLASH 标定区 | 4b |
+| `mc_pos_zero [known_mdeg]` | 停机时捕获运行时关节零点 | 7 |
+| `mc_pos <position_mdeg>` | 静态位置保持 | 7 |
+| `mc_pos_stream` / `mp` | 提交序号、位置和速度前馈流点 | 7 |
+| `mc_pos_status` | 带校验的位置级联紧凑状态 | 7 |
 
 扩展命令: `encoder` (新增 elec_mrad/zero/errors/alive/cal_valid), `mc_open` (新增 enc/ramp 第三参数), `mc_debug` (新增 encoder/align/cal 行)
 
@@ -705,3 +709,13 @@ finsh 自带命令: `help` / `ps` / `version` / `list_thread` / `free` / `reboot
 3. 明确 MP6540H 引脚、MA600A 引脚、电流采样拓扑。
 4. 从 AT 官方 `pmsm_foc_magnetic_encoder` 提取 PWM/ADC/中断时序设计。
 5. 规划 `position_sensor` 和 `motor_control` 最小接口。
+
+## 2026-07-21 Stage 7 单电机位置控制结论
+
+- 可用基线提交：`40849d9`。
+- 位置接口：连续机械 mdeg、运行时关节零点、`position_setpoint_t(position_mdeg, velocity_mdeg_s, sequence, lease_ms)`，支持同内容幂等重发。
+- 参数：位置 Kp=5.0，电气速度上限 200 rpm，级联 Iq 上限 0.5 A；POSITION 专用静态/运动摩擦前馈分别为 80/40 mA，误差死区 0.2 deg。
+- COM9 三轮重复验收均通过：±5 deg 静态误差 <0.5 deg，±10 deg 换向无采样到的过冲，10 deg/30 deg/s 正弦 P95 为 1.389/1.351/1.335 deg；最终 clean build 烧录复验为 1.329 deg。
+- 超时：100 ms lease 到期后速度前馈清零、参考冻结并继续位置保持；`mc_stop` 才关闭驱动。
+- 安全与构建：全程 fault=0、invalid/freeze 增量为 0，ARMCC5 clean build 0 error/0 warning，最终 DISABLED、EN=LOW、CCR1/2/3=2812、CCR4=5264。
+- 资格边界：COM9 文本链路以约 31–38 Hz 有效点率验证控制行为；100 Hz 是 CAN 目标，尚未进行 CAN、双电机或五连杆机构实测。当前无需加入齿槽/扭矩脉动表，先进入 CAN Transport 与双节点同步开发。
