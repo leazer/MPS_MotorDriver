@@ -34,10 +34,24 @@ class ByteSerial:
         return data
 
 
+def make_status_line(active=1, target=1, cmd=1, meas=1, iqref=0, id_ma=0,
+                     iq_ma=0, invalid=0, streak=0, freeze=0, fault=0, enc=12345):
+    values = (active, target, cmd, meas, iqref, id_ma, iq_ma, invalid,
+              streak, freeze, fault, enc)
+    checksum = 0x53504436
+    for value in values:
+        checksum ^= value & 0xFFFFFFFF
+    return (
+        f"ss a={active} t={target} c={cmd} m={meas} u={iqref} "
+        f"d={id_ma} q={iq_ma} n={invalid} s={streak} z={freeze} f={fault:08X} "
+        f"e={enc:05d} k={checksum:08X}"
+    )
+
+
 def test_parse_compact_speed_status():
-    text = (
-        "spdstat active=1 target=6283 cmd=6283 meas=6201 iqref=84 "
-        "id=2 iq=82 invalid=7 streak=0 freeze=3 fault=0x00000000"
+    text = make_status_line(
+        target=6283, cmd=6283, meas=6201, iqref=84,
+        id_ma=2, iq_ma=82, invalid=7, freeze=3,
     )
     assert BENCH.parse_speed_status(text) == {
         "active": 1,
@@ -51,15 +65,14 @@ def test_parse_compact_speed_status():
         "streak": 0,
         "freeze": 3,
         "fault": 0,
+        "enc": 12345,
     }
+    assert BENCH.parse_speed_status(text.replace("m=6201", "m=6202")) is None
     assert BENCH.parse_speed_status("spdstat incomplete") is None
 
 
 def test_serial_decode_drops_corrupt_bytes_without_console_replacement_chars():
-    ser = ByteSerial(
-        b"\xffspdstat active=1 target=1 cmd=1 meas=1 iqref=0 id=0 iq=0 "
-        b"invalid=0 streak=0 freeze=0 fault=0x00000000\r\nmsh >"
-    )
+    ser = ByteSerial(b"\xff" + make_status_line().encode("ascii") + b"\r\nmsh >")
     text = BENCH.read_until_prompt(ser, timeout=0.01)
     assert "\ufffd" not in text
     assert BENCH.parse_speed_status(text)["meas"] == 1
@@ -69,8 +82,7 @@ def test_speed_status_retries_after_one_corrupt_reply():
     replies = iter(
         (
             "mc_speY5",
-            "spdstat active=1 target=1 cmd=1 meas=1 iqref=0 id=0 iq=0 "
-            "invalid=0 streak=0 freeze=0 fault=0x00000000",
+            make_status_line(),
         )
     )
     original = BENCH.send_cmd
@@ -158,7 +170,7 @@ def test_shell_exports_compact_speed_status():
     shell = (ROOT / "application" / "motor_shell.c").read_text(encoding="utf-8")
     assert "static void mc_speed_status" in shell
     assert "MSH_CMD_EXPORT(mc_speed_status" in shell
-    assert "spdstat active=" in shell
+    assert "ss a=" in shell
 
 
 def test_final_safe_state_is_queried_and_asserted():
@@ -171,10 +183,7 @@ def test_final_safe_state_is_queried_and_asserted():
             "CCR1/2/3 : 2812 / 2812 / 2812\n"
             "CCR4     : 5264 (ADC trigger)\nEN(PB10) : 0"
         ),
-        "mc_speed_status": (
-            "spdstat active=0 target=0 cmd=0 meas=0 iqref=0 "
-            "id=0 iq=0 invalid=0 streak=0 freeze=0 fault=0x00000000"
-        ),
+        "mc_speed_status": make_status_line(active=0, target=0, cmd=0, meas=0, enc=0),
     }
 
     def fake_send_cmd(_ser, cmd, **_kwargs):

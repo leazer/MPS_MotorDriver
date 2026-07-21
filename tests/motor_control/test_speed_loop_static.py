@@ -60,6 +60,14 @@ def test_shell_exposes_mc_speed_and_debug_fields():
     assert "spd       :" in shell
 
 
+def test_compact_speed_status_includes_encoder_position_for_ripple_diagnosis():
+    shell = read(SHELL_C)
+
+    assert 'ss a=%d t=%ld c=%ld m=%ld u=%ld ' in shell
+    assert 'e=%05u k=%08X\\n' in shell
+    assert "dbg.enc_raw" in shell
+
+
 def test_speed_loop_initialized_from_motor_app():
     app = read(APP_C)
 
@@ -97,6 +105,7 @@ if __name__ == "__main__":
     test_speed_loop_api_and_debug_snapshot_exist()
     test_speed_mode_isr_api_and_branch_reuse_current_loop()
     test_shell_exposes_mc_speed_and_debug_fields()
+    test_compact_speed_status_includes_encoder_position_for_ripple_diagnosis()
     test_speed_loop_initialized_from_motor_app()
     test_speed_mode_has_independent_half_amp_limit()
     test_speed_tuning_constants_match_bench_candidate_twenty_one()

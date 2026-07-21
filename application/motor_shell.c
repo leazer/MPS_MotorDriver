@@ -296,11 +296,28 @@ MSH_CMD_EXPORT(mc_debug, show FOC ISR internal state);
 static void mc_speed_status(int argc, char **argv)
 {
     motor_control_isr_debug_t dbg;
+    uint32_t active;
+    uint32_t fault;
+    uint32_t check;
     (void)argc; (void)argv;
     motor_control_isr_get_debug(&dbg);
-    rt_kprintf("spdstat active=%d target=%ld cmd=%ld meas=%ld iqref=%ld "
-               "id=%ld iq=%ld invalid=%lu streak=%u freeze=%lu fault=0x%08X\n",
-               motor_control_isr_speed_active() ? 1 : 0,
+    active = motor_control_isr_speed_active() ? 1u : 0u;
+    fault = (uint32_t)fault_manager_get();
+    check = 0x53504436u ^ active ^
+            (uint32_t)dbg.spd_target_mrad_s ^
+            (uint32_t)dbg.spd_cmd_mrad_s ^
+            (uint32_t)dbg.spd_meas_mrad_s ^
+            (uint32_t)dbg.spd_iq_ref_ma ^
+            (uint32_t)dbg.id_avg_ma ^
+            (uint32_t)dbg.iq_avg_ma ^
+            (uint32_t)dbg.sample_invalid_total ^
+            (uint32_t)dbg.sample_invalid_consecutive ^
+            (uint32_t)dbg.pi_freeze_count ^ fault ^
+            (uint32_t)dbg.enc_raw;
+    rt_kprintf("ss a=%d t=%ld c=%ld m=%ld u=%ld "
+               "d=%ld q=%ld n=%lu s=%u z=%lu f=%08X "
+               "e=%05u k=%08X\n",
+               (int)active,
                (long)dbg.spd_target_mrad_s,
                (long)dbg.spd_cmd_mrad_s,
                (long)dbg.spd_meas_mrad_s,
@@ -310,7 +327,9 @@ static void mc_speed_status(int argc, char **argv)
                (unsigned long)dbg.sample_invalid_total,
                (unsigned)dbg.sample_invalid_consecutive,
                (unsigned long)dbg.pi_freeze_count,
-               (unsigned)fault_manager_get());
+               (unsigned)fault,
+               (unsigned)dbg.enc_raw,
+               (unsigned)check);
 }
 MSH_CMD_EXPORT(mc_speed_status, show compact speed loop status);
 

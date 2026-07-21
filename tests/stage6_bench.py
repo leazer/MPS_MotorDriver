@@ -20,11 +20,12 @@ SETTLE_SPEED_MRAD_S = 500
 SETTLE_CONSECUTIVE_SAMPLES = 4
 
 STATUS_RE = re.compile(
-    r"spdstat\s+active=(\d+)\s+target=(-?\d+)\s+cmd=(-?\d+)\s+"
-    r"meas=(-?\d+)\s+iqref=(-?\d+)\s+id=(-?\d+)\s+iq=(-?\d+)\s+"
-    r"invalid=(\d+)\s+streak=(\d+)\s+freeze=(\d+)\s+"
-    r"fault=0x([0-9A-Fa-f]+)"
+    r"ss\s+a=(\d+)\s+t=(-?\d+)\s+c=(-?\d+)\s+m=(-?\d+)\s+"
+    r"u=(-?\d+)\s+d=(-?\d+)\s+q=(-?\d+)\s+n=(\d+)\s+"
+    r"s=(\d+)\s+z=(\d+)\s+f=([0-9A-Fa-f]+)\s+"
+    r"e=(\d+)\s+k=([0-9A-Fa-f]+)"
 )
+SPEED_STATUS_CHECK_SEED = 0x53504436
 
 
 def open_port(port):
@@ -73,13 +74,20 @@ def parse_speed_status(text):
     match = STATUS_RE.search(text)
     if match is None:
         return None
-    values = [int(value, 16) if index == 10 else int(value)
+    values = [int(value, 16) if index in (10, 12) else int(value)
               for index, value in enumerate(match.groups())]
     keys = (
         "active", "target", "cmd", "meas", "iqref", "id", "iq",
-        "invalid", "streak", "freeze", "fault",
+        "invalid", "streak", "freeze", "fault", "enc", "check",
     )
-    return dict(zip(keys, values))
+    snapshot = dict(zip(keys, values))
+    expected = SPEED_STATUS_CHECK_SEED
+    for key in keys[:-1]:
+        expected ^= snapshot[key] & 0xFFFFFFFF
+    if snapshot["check"] != expected:
+        return None
+    del snapshot["check"]
+    return snapshot
 
 
 def read_speed_status(ser, attempts=5):
