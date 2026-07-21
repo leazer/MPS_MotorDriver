@@ -28,6 +28,21 @@ def function_body(source, name):
     raise AssertionError(f"unterminated function {name}")
 
 
+def block_after(source, marker):
+    assert marker in source, f"missing block marker: {marker}"
+    marker_index = source.index(marker)
+    start = source.index("{", marker_index)
+    depth = 0
+    for index in range(start, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start + 1:index], start, index
+    raise AssertionError(f"unterminated block after {marker}")
+
+
 def test_public_api_and_diagnostics_contract():
     header = read(HEADER)
     declarations = (
@@ -106,6 +121,21 @@ def test_hardware_filters_are_exact_standard_data_dlc8_ids():
     )
 
 
+def test_init_disables_all_filters_before_enabling_exactly_two():
+    init = function_body(read(SOURCE), "can_at32m412_init")
+    disable_loop, loop_start, loop_end = block_after(
+        init, "for (filter_number = 0u; filter_number < 16u; ++filter_number)"
+    )
+    assert "can_filter_enable(CAN1, (can_filter_type)filter_number, FALSE)" in disable_loop
+    assert "TRUE" not in disable_loop
+    configured = list(re.finditer(r"can_configure_exact_filter\s*\(", init))
+    assert len(configured) == 2, "init must enable exactly two acceptance filters"
+    assert all(match.start() > loop_end for match in configured), \
+        "all hardware filters must be disabled before either exact filter is enabled"
+    assert not re.search(r"can_filter_enable\s*\([^;]*TRUE", init), \
+        "init must enable filters only through the exact-filter helper"
+
+
 def test_interrupts_are_enabled_at_priority_three():
     body = function_body(read(SOURCE), "can_at32m412_init")
     for interrupt in ("CAN_RIE_INT", "CAN_TPIE_INT", "CAN_EPIE_INT", "CAN_EIE_INT", "CAN_BEIE_INT", "CAN_ROIE_INT"):
@@ -164,6 +194,21 @@ def test_rx_irq_is_hardware_bounded_releases_every_read_and_latches_overflow():
     assert fatal_index < enqueue_index, "full queue must not overwrite unread data"
 
 
+def test_rx_read_failure_explicitly_releases_before_continuing():
+    irq = function_body(read(SOURCE), "can_at32m412_irq_rx")
+    failure, _, _ = block_after(
+        irq, "if (can_rxbuf_read(CAN1, &rxbuf) != SUCCESS)"
+    )
+    assert "can_rxbuf_release(CAN1)" in failure, \
+        "read failure must explicitly release/discard the hardware buffer"
+    release = failure.index("can_rxbuf_release(CAN1)")
+    reject = failure.index("rx_rejected")
+    retry = failure.index("continue;")
+    assert release < retry
+    assert reject < retry
+    assert "s_rx_queue[" not in failure
+
+
 def test_software_rx_validation_rejects_extended_remote_wrong_dlc_and_wrong_id():
     body = function_body(read(SOURCE), "can_rx_frame_valid")
     for token in (
@@ -192,6 +237,18 @@ def test_tx_kick_is_single_attempt_without_completion_wait():
     assert "can_transmit_status_get" not in start
 
 
+def test_tx_start_failure_rolls_back_active_without_dequeue():
+    start = function_body(read(SOURCE), "can_tx_start_next")
+    failure, _, _ = block_after(
+        start, "if (can_txbuf_transmit(CAN1, CAN_TRANSMIT_PTB) != SUCCESS)"
+    )
+    assert "s_tx_active = false" in failure
+    assert "tx_errors" in failure
+    assert "return;" in failure
+    assert "s_tx_tail" not in failure, "failed start must leave the frame queued for retry"
+    assert start.index("s_tx_active = true") < start.index("can_txbuf_transmit(")
+
+
 def test_tx_irq_only_consumes_matching_successful_completion_then_kicks_once():
     body = function_body(read(SOURCE), "can_at32m412_irq_tx")
     assert "CAN_TPIF_FLAG" in body and "can_flag_clear" in body
@@ -202,6 +259,22 @@ def test_tx_irq_only_consumes_matching_successful_completion_then_kicks_once():
     assert accepted < advance
     assert body.count("s_tx_tail++") == 1
     assert body.count("can_tx_start_next()") == 1
+
+
+def test_tx_completion_failure_clears_active_without_dequeue():
+    irq = function_body(read(SOURCE), "can_at32m412_irq_tx")
+    success, success_start, success_end = block_after(
+        irq, "if (s_tx_active &&"
+    )
+    assert "s_tx_tail++" in success
+    after_success = irq[success_end + 1:]
+    assert "s_tx_active = false" in after_success, \
+        "all completion outcomes must clear active state so a queued frame can retry"
+    clear = after_success.index("s_tx_active = false")
+    kick = after_success.index("can_tx_start_next()")
+    assert clear < kick
+    assert "s_tx_tail++" not in after_success, \
+        "failed/mismatched completion must not dequeue the pending frame"
 
 
 def test_status_error_capture_is_latched_and_saturating():
@@ -219,6 +292,33 @@ def test_status_error_capture_is_latched_and_saturating():
     assert "can_sat_increment" in status and "status_irqs" in status
     assert "can_sat_increment" in error and "error_irqs" in error
     assert "can_flag_clear" in status and "can_flag_clear" in error
+
+
+def test_diagnostic_counter_increment_saturates_at_uint32_max():
+    increment = function_body(read(SOURCE), "can_sat_increment")
+    guarded, _, guard_end = block_after(increment, "if (*counter != 0xffffffffu)")
+    assert "++(*counter)" in guarded
+    assert "++(*counter)" not in increment[guard_end + 1:]
+    assert "(*counter)++" not in increment
+
+
+def test_diagnostic_getter_documents_and_implements_mixed_snapshot_contract():
+    header = read(HEADER)
+    getter = function_body(read(SOURCE), "can_at32m412_get_diag")
+    for phrase in (
+        "eventually consistent",
+        "not a transactional snapshot",
+        "32-bit fields are individually atomic on Cortex-M4",
+        "can_at32m412_fatal_bus_error()",
+    ):
+        assert phrase in header, f"missing diagnostic contract phrase: {phrase}"
+    assert "nvic_irq_disable" not in getter and "__disable_irq" not in getter
+    for field in (
+        "rec", "tec", "error_passive", "bus_off_latched", "fatal_latched",
+        "rx_received", "rx_rejected", "rx_overflow", "tx_queued",
+        "tx_completed", "tx_rejected", "tx_errors", "status_irqs", "error_irqs",
+    ):
+        assert f"out->{field} = s_diag.{field};" in getter
 
 
 def test_irq_wrappers_are_only_the_four_adapter_calls():
