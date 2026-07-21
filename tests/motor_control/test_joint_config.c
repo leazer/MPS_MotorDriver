@@ -90,9 +90,8 @@ static void test_record_validation_rejects_bad_fields(void)
     assert(!joint_config_record_valid(&cfg));
     cfg.min_joint_position_mdeg = -1;
 
-    cfg.known_joint_position_mdeg = 2;
+    joint_config_make(&cfg, 1u, 1u, 0u, 2, 1, -1, 1);
     assert(!joint_config_record_valid(&cfg));
-    cfg.known_joint_position_mdeg = 0;
 
     joint_config_make(&cfg, 1u, 1u, 0u, 0, 1, -1, 359998);
     assert(joint_config_record_valid(&cfg));
@@ -138,6 +137,16 @@ static void test_select_latest(void)
     newer.crc32 ^= 1u;
     assert(joint_config_select_latest(&older, &newer, &selected));
     assert(selected.generation == 0xffffffffu);
+
+    joint_config_make(&older, 7u, 1u, 0u, 0, 1, -1, 1);
+    joint_config_make(&newer, 7u, 2u, 0u, 0, -1, -1, 1);
+    assert(joint_config_select_latest(&older, &newer, &selected));
+    assert(selected.node_id == 1u);
+
+    joint_config_make(&older, 0u, 1u, 0u, 0, 1, -1, 1);
+    joint_config_make(&newer, 0x80000000u, 2u, 0u, 0, -1, -1, 1);
+    assert(joint_config_select_latest(&older, &newer, &selected));
+    assert(selected.node_id == 1u);
 }
 
 int main(void)
