@@ -347,9 +347,11 @@ static void process_frame(const can_frame_t *frame)
 
 static void process_stop(void)
 {
+    bool fault_latched = s_service.state == CAN_NODE_STATE_FAULT;
+
     clear_pending();
     stop_position();
-    if ((read_faults() & FAULT_FATAL_MASK) != 0u) {
+    if (fault_latched || (read_faults() & FAULT_FATAL_MASK) != 0u) {
         set_state(CAN_NODE_STATE_FAULT);
     } else {
         set_state(s_service.joint_ready ? CAN_NODE_STATE_READY
@@ -432,6 +434,7 @@ void can_motion_service_set_joint_config(bool ready, uint8_t node_id)
     bool valid = ready && valid_node_id(node_id);
     bool changed = (valid != s_service.joint_ready) ||
                    (valid && node_id != s_service.node_id);
+    bool fault_latched = s_service.state == CAN_NODE_STATE_FAULT;
 
     if (!changed) {
         return;
@@ -444,7 +447,7 @@ void can_motion_service_set_joint_config(bool ready, uint8_t node_id)
     s_service.expected_sequence = 0u;
     s_service.joint_ready = valid;
     s_service.node_id = valid ? node_id : 0u;
-    if ((read_faults() & FAULT_FATAL_MASK) != 0u) {
+    if (fault_latched || (read_faults() & FAULT_FATAL_MASK) != 0u) {
         set_state(CAN_NODE_STATE_FAULT);
     } else {
         set_state(valid ? CAN_NODE_STATE_READY : CAN_NODE_STATE_UNCONFIGURED);
@@ -581,3 +584,16 @@ void can_motion_service_force_stop(void)
 {
     latch_fault_and_stop(FAULT_CAN_BUS);
 }
+
+#ifdef CAN_MOTION_SERVICE_TEST
+void can_motion_service_test_seed_counters(uint32_t rx_frames,
+                                           uint32_t tx_frames,
+                                           uint32_t tx_failures,
+                                           uint32_t protocol_errors)
+{
+    s_service.rx_frames = rx_frames;
+    s_service.tx_frames = tx_frames;
+    s_service.tx_failures = tx_failures;
+    s_service.protocol_errors = protocol_errors;
+}
+#endif

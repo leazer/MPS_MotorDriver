@@ -11,6 +11,13 @@
 #define RX_CAPACITY 32u
 #define TX_CAPACITY 32u
 
+#ifdef CAN_MOTION_SERVICE_TEST
+extern void can_motion_service_test_seed_counters(uint32_t rx_frames,
+                                                  uint32_t tx_frames,
+                                                  uint32_t tx_failures,
+                                                  uint32_t protocol_errors);
+#endif
+
 static can_frame_t s_rx[RX_CAPACITY];
 static unsigned s_rx_head;
 static unsigned s_rx_tail;
@@ -524,6 +531,57 @@ static void test_stop_is_session_independent_and_fault_latched(void)
     assert(s_stop_calls == 3u);
 }
 
+static void test_stop_cannot_exit_latched_fault_after_condition_clears(void)
+{
+    reset_service();
+    configure_and_arm(1u, 2u);
+    apply_first(0, 0, 1u, 2u);
+    can_motion_service_force_stop();
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    assert(s_stop_calls == 1u);
+
+    s_faults = FAULT_NONE;
+    enqueue(broadcast(CAN_OPCODE_STOP, 0u, 0xffffu));
+    can_motion_service_tick_1ms();
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    assert(!snapshot().pending_valid);
+    assert(!snapshot().position_active);
+    assert(s_stop_calls == 2u);
+
+    enqueue(broadcast(CAN_OPCODE_CLEAR_FAULT, 0u, 0u));
+    can_motion_service_tick_1ms();
+    assert(snapshot().state == CAN_NODE_STATE_READY);
+}
+
+static void test_config_change_cannot_exit_latched_fault(void)
+{
+    reset_service();
+    configure_and_arm(1u, 2u);
+    can_motion_service_force_stop();
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    s_faults = FAULT_NONE;
+
+    can_motion_service_set_joint_config(false, 0u);
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    assert(!snapshot().joint_ready);
+    can_motion_service_set_joint_config(true, 2u);
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    assert(snapshot().joint_ready);
+    assert(snapshot().node_id == 2u);
+
+    enqueue(broadcast(CAN_OPCODE_CLEAR_FAULT, 0u, 0u));
+    can_motion_service_tick_1ms();
+    assert(snapshot().state == CAN_NODE_STATE_READY);
+
+    can_motion_service_force_stop();
+    s_faults = FAULT_NONE;
+    can_motion_service_set_joint_config(false, 0u);
+    assert(snapshot().state == CAN_NODE_STATE_FAULT);
+    enqueue(broadcast(CAN_OPCODE_CLEAR_FAULT, 0u, 0u));
+    can_motion_service_tick_1ms();
+    assert(snapshot().state == CAN_NODE_STATE_UNCONFIGURED);
+}
+
 static void test_session_change_sequence_wrap_and_stale_pending(void)
 {
     reset_service();
@@ -726,6 +784,50 @@ static void test_ages_saturate(void)
     assert(snapshot().state == CAN_NODE_STATE_FAULT);
 }
 
+#ifdef CAN_MOTION_SERVICE_TEST
+static void test_diagnostic_counters_saturate(void)
+{
+    can_motion_snapshot_t state;
+    can_frame_t invalid;
+
+    reset_service();
+    can_motion_service_set_joint_config(true, 1u);
+    can_motion_service_poll_tx();
+    s_tx_count = 0u;
+
+    can_motion_service_test_seed_counters(UINT32_MAX, 0u, 0u, 0u);
+    enqueue(broadcast(CAN_OPCODE_DISCOVER, 0u, 0u));
+    can_motion_service_tick_1ms();
+    assert(snapshot().rx_frames == UINT32_MAX);
+
+    can_motion_service_test_seed_counters(UINT32_MAX, UINT32_MAX, 0u, 0u);
+    can_motion_service_poll_tx();
+    assert(s_tx_count == 1u);
+    assert(snapshot().tx_frames == UINT32_MAX);
+
+    can_motion_service_test_seed_counters(UINT32_MAX, UINT32_MAX,
+                                          UINT32_MAX, 0u);
+    s_tx_accept = false;
+    enqueue(broadcast(CAN_OPCODE_DISCOVER, 0u, 0u));
+    can_motion_service_tick_1ms();
+    can_motion_service_poll_tx();
+    assert(snapshot().tx_failures == UINT32_MAX);
+
+    can_motion_service_test_seed_counters(UINT32_MAX, UINT32_MAX,
+                                          UINT32_MAX, UINT32_MAX);
+    memset(&invalid, 0, sizeof(invalid));
+    invalid.id = 0x7ffu;
+    invalid.dlc = 8u;
+    enqueue(invalid);
+    can_motion_service_tick_1ms();
+    state = snapshot();
+    assert(state.rx_frames == UINT32_MAX);
+    assert(state.tx_frames == UINT32_MAX);
+    assert(state.tx_failures == UINT32_MAX);
+    assert(state.protocol_errors == UINT32_MAX);
+}
+#endif
+
 int main(void)
 {
     test_frozen_wire_state_values();
@@ -736,12 +838,17 @@ int main(void)
     test_stop_priority_and_bounded_drain();
     test_watchdog_hold_resume_timeout_and_clear();
     test_stop_is_session_independent_and_fault_latched();
+    test_stop_cannot_exit_latched_fault_after_condition_clears();
+    test_config_change_cannot_exit_latched_fault();
     test_session_change_sequence_wrap_and_stale_pending();
     test_first_target_gate_and_callback_failures();
     test_force_stop_and_fault_authority();
     test_feedback_health_schedule_and_tx_failure();
     test_fault_change_sends_immediate_health();
     test_ages_saturate();
+#ifdef CAN_MOTION_SERVICE_TEST
+    test_diagnostic_counters_saturate();
+#endif
     puts("can motion service: PASS");
     return 0;
 }
