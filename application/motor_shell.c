@@ -28,6 +28,8 @@
 #include "motor_params.h"
 #include "motor_app.h"
 
+static uint16_t s_position_shell_sequence;
+
 /* ---- pwm_info: 打印 TMR1 PWM 配置 ---- */
 static void pwm_info(int argc, char **argv)
 {
@@ -224,6 +226,7 @@ MSH_CMD_EXPORT(mc_open, start open-loop: mc_open <vd_mv> <speed_rpm_elec> [enc|r
 static void mc_stop(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    motor_control_isr_position_stop();     /* Stage 7: 停位置/速度/电流级联 */
     motor_control_isr_speed_stop();        /* Stage 6: 停速度环 */
     motor_control_isr_current_stop();      /* Stage 5: 停电流环 */
     motor_control_isr_align_stop();        /* Stage 4: 停 ALIGN */
@@ -492,6 +495,169 @@ static void mc_speed(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_speed, start speed loop: mc_speed <rpm_elec>);
 
+static int motor_shell_submit_position(const position_setpoint_t *setpoint)
+{
+    const motor_control_t *mc;
+
+    if (motor_control_isr_position_active()) {
+        return motor_control_isr_position_submit(setpoint);
+    }
+    mc = motor_app_get_control();
+    if (motor_control_get_state(mc) == MOTOR_CONTROL_STATE_ENABLED) {
+        return -3;
+    }
+    return motor_control_isr_position_start(setpoint);
+}
+
+/* ---- mc_pos_zero [known_mdeg]: 在停止状态捕获运行时关节坐标 ---- */
+static void mc_pos_zero(int argc, char **argv)
+{
+    long known_mdeg;
+    int32_t sensor_mdeg;
+
+    if (argc > 2) {
+        rt_kprintf("usage: mc_pos_zero [known_mdeg]\n");
+        return;
+    }
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
+    known_mdeg = argc == 2 ? strtol(argv[1], NULL, 0) : 0;
+    if (known_mdeg > POSITION_COMMAND_LIMIT_MDEG ||
+        known_mdeg < -POSITION_COMMAND_LIMIT_MDEG) {
+        rt_kprintf("FAIL: known position out of range +-%ld mdeg\n",
+                   (long)POSITION_COMMAND_LIMIT_MDEG);
+        return;
+    }
+    sensor_mdeg = encoder_service_get_control_position_mdeg();
+    position_loop_set_origin(sensor_mdeg, (int32_t)known_mdeg);
+    s_position_shell_sequence = 0u;
+    rt_kprintf("position zero: sensor=%ld joint=%ld mdeg\n",
+               (long)sensor_mdeg, known_mdeg);
+}
+MSH_CMD_EXPORT(mc_pos_zero, capture joint coordinate: mc_pos_zero [known_mdeg]);
+
+/* ---- mc_pos <position_mdeg>: 静态目标, 无限租约并保持 ---- */
+static void mc_pos(int argc, char **argv)
+{
+    position_setpoint_t setpoint;
+    long position_mdeg;
+    int ret;
+
+    if (argc != 2) {
+        rt_kprintf("usage: mc_pos <position_mdeg>\n");
+        return;
+    }
+    position_mdeg = strtol(argv[1], NULL, 0);
+    if (position_mdeg > POSITION_COMMAND_LIMIT_MDEG ||
+        position_mdeg < -POSITION_COMMAND_LIMIT_MDEG) {
+        rt_kprintf("FAIL: position out of range +-%ld mdeg\n",
+                   (long)POSITION_COMMAND_LIMIT_MDEG);
+        return;
+    }
+    s_position_shell_sequence++;
+    setpoint.position_mdeg = (int32_t)position_mdeg;
+    setpoint.velocity_mdeg_s = 0;
+    setpoint.sequence = s_position_shell_sequence;
+    setpoint.lease_ms = 0u;
+    ret = motor_shell_submit_position(&setpoint);
+    if (ret == 0) {
+        rt_kprintf("position hold: seq=%u target=%ld mdeg\n",
+                   (unsigned)setpoint.sequence, position_mdeg);
+    } else {
+        rt_kprintf("FAIL: position command ret=%d (zero/fault/mode/range)\n", ret);
+    }
+}
+MSH_CMD_EXPORT(mc_pos, hold position: mc_pos <position_mdeg>);
+
+/* ---- mc_pos_stream <seq> <position_mdeg> <velocity_mdeg_s> ---- */
+static void mc_pos_stream(int argc, char **argv)
+{
+    position_setpoint_t setpoint;
+    long sequence;
+    long position_mdeg;
+    long velocity_mdeg_s;
+    int ret;
+
+    if (argc != 4) {
+        rt_kprintf("usage: mc_pos_stream <seq> <position_mdeg> <velocity_mdeg_s>\n");
+        return;
+    }
+    sequence = strtol(argv[1], NULL, 0);
+    position_mdeg = strtol(argv[2], NULL, 0);
+    velocity_mdeg_s = strtol(argv[3], NULL, 0);
+    if (sequence < 0 || sequence > 65535 ||
+        position_mdeg > POSITION_COMMAND_LIMIT_MDEG ||
+        position_mdeg < -POSITION_COMMAND_LIMIT_MDEG ||
+        velocity_mdeg_s > POSITION_MAX_VELOCITY_MDEG_S ||
+        velocity_mdeg_s < -POSITION_MAX_VELOCITY_MDEG_S) {
+        rt_kprintf("FAIL: stream range seq=0..65535 pos=+-%ld vel=+-%ld\n",
+                   (long)POSITION_COMMAND_LIMIT_MDEG,
+                   (long)POSITION_MAX_VELOCITY_MDEG_S);
+        return;
+    }
+    setpoint.position_mdeg = (int32_t)position_mdeg;
+    setpoint.velocity_mdeg_s = (int32_t)velocity_mdeg_s;
+    setpoint.sequence = (uint16_t)sequence;
+    setpoint.lease_ms = POSITION_STREAM_LEASE_MS;
+    ret = motor_shell_submit_position(&setpoint);
+    if (ret == 0) {
+        s_position_shell_sequence = setpoint.sequence;
+        rt_kprintf("position stream: seq=%u target=%ld vel=%ld\n",
+                   (unsigned)setpoint.sequence,
+                   position_mdeg, velocity_mdeg_s);
+    } else {
+        rt_kprintf("FAIL: position stream ret=%d (zero/fault/mode/sequence)\n", ret);
+    }
+}
+MSH_CMD_EXPORT(mc_pos_stream, stream position and velocity feedforward);
+
+/* ---- mc_pos_status: 紧凑位置级联状态, 带 XOR 完整性校验 ---- */
+static void mc_pos_status(int argc, char **argv)
+{
+    position_loop_snapshot_t pos;
+    motor_control_isr_debug_t dbg;
+    uint32_t active;
+    uint32_t fault;
+    uint32_t check;
+
+    (void)argc; (void)argv;
+    position_loop_get_snapshot(&pos);
+    motor_control_isr_get_debug(&dbg);
+    active = motor_control_isr_position_active() ? 1u : 0u;
+    fault = (uint32_t)fault_manager_get();
+    check = 0x504F5331u ^ active ^
+            (uint32_t)pos.target_position_mdeg ^
+            (uint32_t)pos.velocity_ff_mdeg_s ^
+            (uint32_t)pos.reference_position_mdeg ^
+            (uint32_t)pos.measured_position_mdeg ^
+            (uint32_t)pos.error_mdeg ^
+            (uint32_t)pos.speed_ref_elec_mrad_s ^
+            (uint32_t)dbg.spd_meas_mrad_s ^
+            (uint32_t)dbg.spd_iq_ref_ma ^
+            (uint32_t)pos.age_ms ^
+            (uint32_t)pos.stream_timeout ^
+            (uint32_t)pos.sequence ^ fault;
+    rt_kprintf("ps a=%d t=%ld v=%ld r=%ld m=%ld e=%ld "
+               "w=%ld x=%ld q=%ld g=%u o=%u n=%u "
+               "f=%08X k=%08X\n",
+               (int)active,
+               (long)pos.target_position_mdeg,
+               (long)pos.velocity_ff_mdeg_s,
+               (long)pos.reference_position_mdeg,
+               (long)pos.measured_position_mdeg,
+               (long)pos.error_mdeg,
+               (long)pos.speed_ref_elec_mrad_s,
+               (long)dbg.spd_meas_mrad_s,
+               (long)dbg.spd_iq_ref_ma,
+               (unsigned)pos.age_ms,
+               (unsigned)pos.stream_timeout,
+               (unsigned)pos.sequence,
+               (unsigned)fault,
+               (unsigned)check);
+}
+MSH_CMD_EXPORT(mc_pos_status, show compact position loop status);
+
 /* ---- mc_cal: 零偏标定 (PWM 50% 时采 1024 次平均, spec §4.3.3) ----
  * 前置条件: PWM 已输出 50% (mc_stop 或开机默认), MP6540H 可使能或禁用.
  * 标定期间 ISR 若未启动, 用软件触发读取; 若已启动, 直接读注入结果.
@@ -567,6 +733,7 @@ static void fault(int argc, char **argv)
     if (f & FAULT_CAN_TIMEOUT)  rt_kprintf("  CAN_TIMEOUT\n");
     if (f & FAULT_CAL_INVALID)  rt_kprintf("  CAL_INVALID\n");
     if (f & FAULT_CURRENT_SAMPLE) rt_kprintf("  CURRENT_SAMPLE\n");
+    if (f & FAULT_POSITION_TRACKING) rt_kprintf("  POSITION_TRACKING\n");
 }
 MSH_CMD_EXPORT(fault, show fault flags);
 
