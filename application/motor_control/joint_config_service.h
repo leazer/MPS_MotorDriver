@@ -18,12 +18,18 @@ typedef struct {
     bool restored_joint_valid;
     int32_t restored_joint_mdeg;
     bool service_ready;
+    bool mutation_busy;
+    bool runtime_locked;
+    bool reboot_required;
 } joint_config_service_status_t;
 
 void joint_config_service_init(void);
 void joint_config_service_poll(void);
 bool joint_config_service_ready(void);
 uint8_t joint_config_service_node_id(void);
+bool joint_config_service_lock_runtime(uint8_t *node_id);
+bool joint_config_service_set_runtime_origin(int32_t sensor_mdeg,
+                                             int32_t joint_mdeg);
 bool joint_config_service_capture(uint8_t node_id,
                                   int32_t known_mdeg,
                                   int8_t direction,

@@ -28,7 +28,8 @@ def test_joint_zero_is_disabled_only_and_uses_control_position():
     body = command_body(shell, "mc_pos_zero", "MSH_CMD_EXPORT(mc_pos_zero")
     assert "motor_shell_reject_if_running" in body
     assert "encoder_service_get_control_position_mdeg" in body
-    assert "position_loop_set_origin" in body
+    assert "joint_config_service_set_runtime_origin" in body
+    assert "position_loop_set_origin(" not in body
 
 
 def test_static_and_stream_commands_use_distinct_leases():

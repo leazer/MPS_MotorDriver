@@ -135,12 +135,126 @@ def assert_service_direction_contract(service):
     ))
     assert (
         "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
-        "restored_joint_mdeg, s_record.joint_direction)"
+        "restored_joint_mdeg, record.joint_direction)"
     ) in poll_body
     assert (
         "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
         "restored_joint_mdeg, verified.joint_direction)"
     ) in capture_body
+
+
+def assert_runtime_arbitration_contract(service):
+    begin = normalized_source(function_body(
+        service,
+        "static bool joint_config_service_begin_mutation(bool allow_runtime_locked)",
+    ))
+    lock_runtime = normalized_source(function_body(
+        service,
+        "bool joint_config_service_lock_runtime(uint8_t *node_id)",
+    ))
+    fail_closed = normalized_source(function_body(
+        service,
+        "static void joint_config_service_fail_closed_for_reboot(void)",
+    ))
+    quiesce = normalized_source(function_body(
+        service,
+        "static void joint_config_service_quiesce_motion(void)",
+    ))
+    capture = normalized_source(function_body(
+        service,
+        "bool joint_config_service_capture(uint8_t node_id,",
+    ))
+    erase = normalized_source(function_body(
+        service, "bool joint_config_service_erase(void)"
+    ))
+    runtime_origin = normalized_source(function_body(
+        service,
+        "bool joint_config_service_set_runtime_origin(int32_t sensor_mdeg,",
+    ))
+
+    for declaration in [
+        "static volatile bool s_mutation_busy;",
+        "static volatile bool s_runtime_locked;",
+        "static volatile bool s_reboot_required;",
+    ]:
+        assert declaration in service
+
+    assert "primask = joint_config_service_state_lock();" in begin
+    assert (
+        "!s_mutation_busy && !s_reboot_required && "
+        "(allow_runtime_locked || !s_runtime_locked)"
+    ) in begin
+    assert "s_mutation_busy = true;" in begin
+    assert "joint_config_service_state_unlock(primask);" in begin
+
+    assert "if (node_id == NULL) { return false; }" in lock_runtime
+    assert "primask = joint_config_service_state_lock();" in lock_runtime
+    assert (
+        "!s_mutation_busy && !s_runtime_locked && !s_reboot_required && "
+        "s_ready && s_record_present"
+    ) in lock_runtime
+    assert "*node_id = s_record.node_id;" in lock_runtime
+    assert "s_runtime_locked = true;" in lock_runtime
+    assert "joint_config_service_state_unlock(primask);" in lock_runtime
+    assert lock_runtime.index("primask = joint_config_service_state_lock();") < (
+        lock_runtime.index("*node_id = s_record.node_id;")
+    ) < lock_runtime.index("s_runtime_locked = true;") < lock_runtime.index(
+        "joint_config_service_state_unlock(primask);"
+    )
+
+    assert "s_ready = false;" in fail_closed
+    assert "s_reboot_required = true;" in fail_closed
+    assert "s_mutation_busy = false;" in fail_closed
+    assert "primask = joint_config_service_state_lock();" in quiesce
+    assert "s_ready = false;" in quiesce
+    assert "s_reboot_required = true;" in quiesce
+    assert "can_motion_service_set_joint_config(false, 0u);" in quiesce
+    assert "joint_config_service_state_unlock(primask);" in quiesce
+
+    entry_gate = (
+        "if (!joint_config_service_motor_disabled()) { return false; }"
+    )
+    post_flash_gate = (
+        "if (!joint_config_service_motor_disabled()) { "
+        "joint_config_service_fail_closed_for_reboot(); return false; }"
+    )
+    assert capture.count("joint_config_service_motor_disabled()") == 2
+    assert entry_gate in capture
+    assert "if (!joint_config_service_begin_mutation(false)) { return false; }" in capture
+    assert post_flash_gate in capture
+    assert capture.index(entry_gate) < capture.index(
+        "joint_config_service_begin_mutation(false)"
+    ) < capture.index("flash_joint_config_write_next")
+    assert capture.index("flash_joint_config_write_next") < capture.index(
+        post_flash_gate
+    ) < capture.index("position_loop_set_joint_origin")
+
+    assert "if (!joint_config_service_begin_mutation(true)) { return false; }" in erase
+    assert "joint_config_service_quiesce_motion();" in erase
+    assert erase.index("joint_config_service_quiesce_motion();") < erase.index(
+        "flash_joint_config_erase_all"
+    )
+    assert erase.index("flash_joint_config_erase_all") < erase.index(
+        "position_loop_init();"
+    )
+
+    assert runtime_origin.count("joint_config_service_motor_disabled()") == 2
+    assert "joint_config_service_begin_mutation(false)" in runtime_origin
+    assert "!s_record_present && !s_ready" in runtime_origin
+    assert "position_loop_set_joint_origin(sensor_mdeg, joint_mdeg, 1)" in runtime_origin
+    assert "joint_config_service_end_mutation();" in runtime_origin
+
+    critical_start = "primask = joint_config_service_state_lock();"
+    critical_end = "joint_config_service_state_unlock(primask);"
+    cursor = 0
+    while True:
+        start = service.find(critical_start, cursor)
+        if start < 0:
+            break
+        end = service.find(critical_end, start)
+        assert end >= 0
+        assert "flash_joint_config" not in service[start:end]
+        cursor = end + len(critical_end)
 
 
 def test_contract_checkers_reject_incomplete_mutations():
@@ -150,6 +264,7 @@ def test_contract_checkers_reject_incomplete_mutations():
     assert_joint_shell_behavior_contract(shell)
     assert_service_disabled_contract(service)
     assert_service_direction_contract(service)
+    assert_runtime_arbitration_contract(service)
     shell_mutations = [
         (
             "static void joint_cfg_set(int argc, char **argv)",
@@ -215,7 +330,7 @@ def test_contract_checkers_reject_incomplete_mutations():
     service_mutations = [
         (
             "void joint_config_service_poll(void)",
-            "s_record.joint_direction",
+            "record.joint_direction",
             "1",
         ),
         (
@@ -264,6 +379,54 @@ def test_contract_checkers_reject_incomplete_mutations():
             "if (false)",
         ),
     ]
+    arbitration_mutations = [
+        (
+            "static bool joint_config_service_begin_mutation(bool allow_runtime_locked)",
+            "!s_mutation_busy",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_begin_mutation(bool allow_runtime_locked)",
+            "!s_reboot_required",
+            "true",
+        ),
+        (
+            "static bool joint_config_service_begin_mutation(bool allow_runtime_locked)",
+            "allow_runtime_locked || !s_runtime_locked",
+            "true",
+        ),
+        (
+            "bool joint_config_service_lock_runtime(uint8_t *node_id)",
+            "s_runtime_locked = true;",
+            "s_runtime_locked = false;",
+        ),
+        (
+            "bool joint_config_service_capture(uint8_t node_id,",
+            "if (!joint_config_service_motor_disabled()) {\n"
+            "        joint_config_service_fail_closed_for_reboot();\n"
+            "        return false;\n"
+            "    }",
+            "if (!joint_config_service_motor_disabled()) {\n"
+            "        joint_config_service_end_mutation();\n"
+            "        return false;\n"
+            "    }",
+        ),
+        (
+            "static void joint_config_service_fail_closed_for_reboot(void)",
+            "s_reboot_required = true;",
+            "s_reboot_required = false;",
+        ),
+        (
+            "bool joint_config_service_erase(void)",
+            "joint_config_service_quiesce_motion();",
+            "",
+        ),
+        (
+            "bool joint_config_service_set_runtime_origin(int32_t sensor_mdeg,",
+            "joint_config_service_begin_mutation(false)",
+            "joint_config_service_ready()",
+        ),
+    ]
 
     for signature, needle, replacement in shell_mutations:
         assert_function_mutation_rejected(
@@ -279,6 +442,14 @@ def test_contract_checkers_reject_incomplete_mutations():
                  else assert_service_disabled_contract)
         assert_function_mutation_rejected(
             check, service, signature, needle, replacement
+        )
+    for signature, needle, replacement in arbitration_mutations:
+        assert_function_mutation_rejected(
+            assert_runtime_arbitration_contract,
+            service,
+            signature,
+            needle,
+            replacement,
         )
 
 
@@ -402,6 +573,8 @@ def test_joint_config_service_public_contract_and_app_integration():
         "joint_config_service_poll",
         "joint_config_service_ready",
         "joint_config_service_node_id",
+        "joint_config_service_lock_runtime",
+        "joint_config_service_set_runtime_origin",
         "joint_config_service_capture",
         "joint_config_service_erase",
         "joint_config_service_get_status",
@@ -442,7 +615,7 @@ def test_service_restores_once_from_valid_encoder_and_captures_corrected_raw():
     assert "snapshot.corrected_raw16" in poll_body
     assert (
         "position_loop_set_joint_origin(snapshot.control_position_mdeg, "
-        "restored_joint_mdeg, s_record.joint_direction)"
+        "restored_joint_mdeg, record.joint_direction)"
     ) in normalized_source(poll_body)
 
     assert "encoder_service_get_snapshot" in capture_body
@@ -475,7 +648,7 @@ def test_service_erase_is_disabled_only_and_clears_runtime_origin_after_flash():
     assert erase_body.index("flash_joint_config_erase_all") < erase_body.index(
         "position_loop_init"
     )
-    assert "s_ready = false" in erase_body
+    assert "joint_config_service_quiesce_motion" in erase_body
     assert "s_record_present = false" in erase_body
 
 
@@ -522,6 +695,9 @@ def test_joint_config_shell_commands_have_strict_parsing_and_full_status():
         "encoder_ready",
         "restored_joint_mdeg",
         "service_ready",
+        "mutation_busy",
+        "runtime_locked",
+        "reboot_required",
     ]:
         assert label in shell
 

@@ -174,16 +174,17 @@ void motor_app_run(void)
         motor_calibration_poll();
         joint_config_service_poll();
 
-        if (!s_can_init_attempted && joint_config_service_ready()) {
+        if (!s_can_init_attempted) {
             uint8_t node_id;
 
-            s_can_init_attempted = true;
-            node_id = joint_config_service_node_id();
-            if (can_at32m412_init(node_id)) {
-                s_can_ready = true;
-                can_motion_service_set_joint_config(true, node_id);
-            } else {
-                can_motion_service_force_stop();
+            if (joint_config_service_lock_runtime(&node_id)) {
+                s_can_init_attempted = true;
+                if (can_at32m412_init(node_id)) {
+                    s_can_ready = true;
+                    can_motion_service_set_joint_config(true, node_id);
+                } else {
+                    can_motion_service_force_stop();
+                }
             }
         }
 

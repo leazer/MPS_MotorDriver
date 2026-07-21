@@ -3,7 +3,47 @@
 #include <limits.h>
 #include <string.h>
 
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+#include "at32m412_416.h"
+#else
+#include <stdatomic.h>
+#endif
+
 #define POSITION_MDEG_TO_RAD (3.14159265359f / 180000.0f)
+
+#if !defined(__CC_ARM) && !defined(__arm__) && !defined(__thumb__)
+static atomic_flag s_position_origin_host_lock = ATOMIC_FLAG_INIT;
+#endif
+
+static uint32_t position_loop_origin_lock(void)
+{
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+    uint32_t primask;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    return primask;
+#else
+    while (atomic_flag_test_and_set_explicit(&s_position_origin_host_lock,
+                                             memory_order_acquire)) {
+    }
+    return 0u;
+#endif
+}
+
+static void position_loop_origin_unlock(uint32_t primask)
+{
+#if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
+    __DMB();
+    if (primask == 0u) {
+        __enable_irq();
+    }
+#else
+    (void)primask;
+    atomic_flag_clear_explicit(&s_position_origin_host_lock,
+                               memory_order_release);
+#endif
+}
 
 static volatile uint32_t s_publish_generation;
 static volatile int32_t s_publish_position_mdeg;
@@ -99,11 +139,16 @@ static bool position_consume_setpoint(position_setpoint_t *out)
 
 void position_loop_init(void)
 {
+    uint32_t primask;
+
+    position_loop_reset();
+    primask = position_loop_origin_lock();
     s_sensor_anchor_mdeg = 0;
     s_joint_anchor_mdeg = 0;
     s_joint_direction = 1;
     s_origin_valid = 0u;
-    position_loop_reset();
+    s_snapshot.origin_valid = 0u;
+    position_loop_origin_unlock(primask);
 }
 
 void position_loop_reset(void)
@@ -132,16 +177,20 @@ void position_loop_reset(void)
 bool position_loop_set_joint_origin(int32_t sensor_mdeg, int32_t joint_mdeg,
                                     int8_t joint_direction)
 {
+    uint32_t primask;
+
     if (joint_direction != 1 && joint_direction != -1) {
         return false;
     }
 
     position_loop_reset();
+    primask = position_loop_origin_lock();
     s_sensor_anchor_mdeg = sensor_mdeg;
     s_joint_anchor_mdeg = joint_mdeg;
     s_joint_direction = joint_direction;
     s_origin_valid = 1u;
     s_snapshot.origin_valid = 1u;
+    position_loop_origin_unlock(primask);
     return true;
 }
 

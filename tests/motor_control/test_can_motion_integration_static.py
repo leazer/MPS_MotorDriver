@@ -151,15 +151,16 @@ def assert_app_contract(app):
     assert "can_motion_service_set_joint_config(true" not in init
 
     one_shot = normalized("""
-        if (!s_can_init_attempted && joint_config_service_ready()) {
+        if (!s_can_init_attempted) {
             uint8_t node_id;
-            s_can_init_attempted = true;
-            node_id = joint_config_service_node_id();
-            if (can_at32m412_init(node_id)) {
-                s_can_ready = true;
-                can_motion_service_set_joint_config(true, node_id);
-            } else {
-                can_motion_service_force_stop();
+            if (joint_config_service_lock_runtime(&node_id)) {
+                s_can_init_attempted = true;
+                if (can_at32m412_init(node_id)) {
+                    s_can_ready = true;
+                    can_motion_service_set_joint_config(true, node_id);
+                } else {
+                    can_motion_service_force_stop();
+                }
             }
         }
     """)
@@ -168,6 +169,11 @@ def assert_app_contract(app):
     assert run.index("s_can_init_attempted = true;") < run.index(
         "can_at32m412_init(node_id)"
     )
+    assert run.index("joint_config_service_lock_runtime(&node_id)") < run.index(
+        "s_can_init_attempted = true;"
+    )
+    assert "joint_config_service_ready()" not in run
+    assert "joint_config_service_node_id()" not in run
     assert run.index("joint_config_service_poll();") < run.index(one_shot)
 
     ready_block = normalized("""
@@ -298,6 +304,11 @@ def test_contract_checkers_reject_scoped_mutations():
             "void motor_app_run(void)",
             "s_can_init_attempted = true;",
             "s_can_init_attempted = false;",
+        ),
+        (
+            "void motor_app_run(void)",
+            "joint_config_service_lock_runtime(&node_id)",
+            "joint_config_service_ready()",
         ),
         (
             "void motor_app_run(void)",

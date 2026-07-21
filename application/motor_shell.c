@@ -600,7 +600,11 @@ static void mc_pos_zero(int argc, char **argv)
         return;
     }
     sensor_mdeg = encoder_service_get_control_position_mdeg();
-    position_loop_set_origin(sensor_mdeg, (int32_t)known_mdeg);
+    if (!joint_config_service_set_runtime_origin(sensor_mdeg,
+                                                 (int32_t)known_mdeg)) {
+        rt_kprintf("FAIL: runtime origin locked, persistent, busy, or reboot required\n");
+        return;
+    }
     s_position_shell_sequence = 0u;
     rt_kprintf("position zero: sensor=%ld joint=%ld mdeg\n",
                (long)sensor_mdeg, known_mdeg);
@@ -811,6 +815,9 @@ static void joint_cfg_show(int argc, char **argv)
     rt_kprintf("restored_joint_valid : %u\n",
                status.restored_joint_valid ? 1u : 0u);
     rt_kprintf("service_ready        : %u\n", status.service_ready ? 1u : 0u);
+    rt_kprintf("mutation_busy        : %u\n", status.mutation_busy ? 1u : 0u);
+    rt_kprintf("runtime_locked       : %u\n", status.runtime_locked ? 1u : 0u);
+    rt_kprintf("reboot_required      : %u\n", status.reboot_required ? 1u : 0u);
 }
 MSH_CMD_EXPORT(joint_cfg_show, show persistent joint coordinate status);
 
@@ -826,7 +833,7 @@ static void joint_cfg_erase(int argc, char **argv)
         rt_kprintf("FAIL: joint config erase requires stopped motor and valid storage\n");
         return;
     }
-    rt_kprintf("joint config erased\n");
+    rt_kprintf("joint config erased; reboot required\n");
 }
 MSH_CMD_EXPORT(joint_cfg_erase, erase persistent joint coordinate while stopped);
 
