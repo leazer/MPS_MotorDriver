@@ -130,6 +130,8 @@ def decode_health(frame):
 
 class CanalystMotorPeer:
     def __init__(self, device, node_id=1):
+        if isinstance(node_id, bool) or not isinstance(node_id, int):
+            raise TypeError("node_id must be an integer")
         if node_id != 1:
             raise ValueError("the Stage 8 peer accepts only Motor CAN Node 1")
         if not callable(getattr(device, "send", None)) or not callable(
@@ -138,6 +140,7 @@ class CanalystMotorPeer:
             raise TypeError("device must provide send() and receive()")
         self.device = device
         self.node_id = node_id
+        self._armed = False
         self._session = None
         self._arm_sequence = None
         self._last_submitted_sequence = None
@@ -152,6 +155,7 @@ class CanalystMotorPeer:
         session = _uint16(session, "session")
         sequence = _uint16(sequence, "sequence")
         self.device.send(encode_broadcast(OPCODE_ARM, sequence, session))
+        self._armed = True
         self._session = session
         self._arm_sequence = sequence
         self._last_submitted_sequence = None
@@ -159,6 +163,10 @@ class CanalystMotorPeer:
         self._last_feedback_sequence = None
 
     def submit(self, position_mdeg, velocity_mdeg_s, sequence):
+        if not self._armed:
+            raise RuntimeError("trajectory preload requires successful ARM")
+        if self._pending_sequence is not None:
+            raise RuntimeError("matching SYNC is required before another preload")
         frame = encode_trajectory(position_mdeg, velocity_mdeg_s, sequence)
         sequence = _uint16(sequence, "sequence")
         if self._last_submitted_sequence is None:
@@ -171,6 +179,8 @@ class CanalystMotorPeer:
         self._pending_sequence = sequence
 
     def sync(self, session, sequence):
+        if not self._armed:
+            raise RuntimeError("SYNC requires successful ARM")
         session = _uint16(session, "session")
         sequence = _uint16(sequence, "sequence")
         if self._session is not None and session != self._session:
@@ -186,6 +196,8 @@ class CanalystMotorPeer:
 
     def stop(self, session=0, sequence=0):
         self.device.send(encode_broadcast(OPCODE_STOP, sequence, session))
+        self._armed = False
+        self._pending_sequence = None
 
     def _take_cached(self, can_id):
         kept = deque()
@@ -211,6 +223,7 @@ class CanalystMotorPeer:
             if acceptable(value):
                 return value
 
+        result = None
         frames = self.device.receive(max_frames=_RECEIVE_BATCH, wait_ms=0)
         for frame in frames:
             if not isinstance(frame, CanFrame):
@@ -223,9 +236,12 @@ class CanalystMotorPeer:
                 value = decoder(frame)
             except (TypeError, ValueError):
                 continue
-            if acceptable(value):
-                return value
-        return None
+            if result is None:
+                if acceptable(value):
+                    result = value
+            else:
+                self._inbox.append(frame)
+        return result
 
     def read_health(self):
         return self._read(

@@ -26,16 +26,20 @@ CanFrame = CONTROL.CanFrame
 
 
 class FakeDevice:
-    def __init__(self, received=(), fail_send_ids=()):
+    def __init__(self, received=(), fail_send_ids=(), fail_send_calls=()):
         self.received = [list(batch) for batch in received]
         self.fail_send_ids = set(fail_send_ids)
+        self.fail_send_calls = set(fail_send_calls)
         self.sent = []
         self.receive_calls = []
 
     def send(self, frame):
         assert isinstance(frame, CanFrame)
         self.sent.append(frame)
-        if frame.can_id in self.fail_send_ids:
+        if (
+            frame.can_id in self.fail_send_ids
+            or len(self.sent) in self.fail_send_calls
+        ):
             raise RuntimeError(f"send failed for {frame.can_id:#x}")
 
     def receive(self, max_frames, wait_ms):
@@ -139,30 +143,34 @@ def test_command_methods_send_exact_frames_and_stop_once_per_call():
 def test_preload_must_succeed_before_matching_sync():
     device = FakeDevice(fail_send_ids={0x101})
     peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    peer.arm(0x2222, sequence=7)
     try:
         peer.apply_point(0x2222, 7, 33596, 0)
     except RuntimeError:
         pass
     else:
         raise AssertionError("preload failure was swallowed")
-    assert [frame.can_id for frame in device.sent] == [0x101]
+    assert [frame.can_id for frame in device.sent] == [0x080, 0x101]
 
 
 def test_apply_point_preloads_then_syncs_same_session_and_sequence():
     device = FakeDevice()
     peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    peer.arm(0x2222, sequence=7)
     peer.apply_point(0x2222, 7, 33596, -120)
     assert device.sent == [
+        MODULE.encode_broadcast(MODULE.OPCODE_ARM, 7, 0x2222),
         MODULE.encode_trajectory(33596, -120, 7),
         MODULE.encode_broadcast(MODULE.OPCODE_SYNC, 7, 0x2222),
     ]
     expect_error(lambda: peer.sync(0x2222, 8), RuntimeError)
-    assert len(device.sent) == 2
+    assert len(device.sent) == 3
 
 
 def test_command_sequence_rejection_is_wrap_aware_and_arm_resets_window():
     device = FakeDevice()
     peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    peer.arm(1, sequence=0xFFFF)
     peer.submit(0, 0, 0xFFFF)
     peer.sync(1, 0xFFFF)
     peer.submit(1, 10, 0)
@@ -170,6 +178,43 @@ def test_command_sequence_rejection_is_wrap_aware_and_arm_resets_window():
     expect_error(lambda: peer.submit(2, 20, 0xFFFF), ValueError)
     peer.arm(2, sequence=0xFFFF)
     peer.submit(3, 30, 0xFFFF)
+
+
+def test_motion_commands_before_successful_arm_send_no_frames():
+    device = FakeDevice()
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    for callback in (
+        lambda: peer.submit(0, 0, 0),
+        lambda: peer.sync(1, 0),
+        lambda: peer.apply_point(1, 0, 0, 0),
+    ):
+        expect_error(callback, RuntimeError)
+        assert device.sent == []
+
+
+def test_failed_arm_does_not_authorize_motion_commands():
+    device = FakeDevice(fail_send_ids={0x080})
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    expect_error(lambda: peer.arm(1), RuntimeError)
+    expect_error(lambda: peer.submit(0, 0, 0), RuntimeError)
+    expect_error(lambda: peer.sync(1, 0), RuntimeError)
+    assert device.sent == [MODULE.encode_broadcast(MODULE.OPCODE_ARM, 0, 1)]
+
+
+def test_failed_sync_keeps_exact_preload_retryable_and_ordered():
+    device = FakeDevice(fail_send_calls={3})
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    peer.arm(9, sequence=4)
+    peer.submit(100, 20, 4)
+    expect_error(lambda: peer.sync(9, 4), RuntimeError)
+    expect_error(lambda: peer.submit(101, 20, 5), RuntimeError)
+    peer.sync(9, 4)
+    assert device.sent == [
+        MODULE.encode_broadcast(MODULE.OPCODE_ARM, 4, 9),
+        MODULE.encode_trajectory(100, 20, 4),
+        MODULE.encode_broadcast(MODULE.OPCODE_SYNC, 4, 9),
+        MODULE.encode_broadcast(MODULE.OPCODE_SYNC, 4, 9),
+    ]
 
 
 def test_readers_filter_unrelated_malformed_and_stale_frames():
@@ -192,8 +237,49 @@ def test_readers_filter_unrelated_malformed_and_stale_frames():
     assert device.receive_calls == [(64, 0), (64, 0), (64, 0)]
 
 
+def test_read_preserves_health_after_returning_earlier_feedback():
+    feedback = CanFrame(0x181, bytes.fromhex("01 00 00 00 01 00 01 00"))
+    health = CanFrame(0x281, bytes.fromhex("01 01 00 00 00 00 10 27"))
+    device = FakeDevice(received=[[feedback, health]])
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    assert peer.read_feedback() == MODULE.Feedback(1, 10, 1)
+    assert peer.read_health() == MODULE.Health(1, 1, 0, 0, 10000)
+    assert device.receive_calls == [(64, 0)]
+
+
+def test_read_preserves_later_feedback_from_same_batch():
+    first = CanFrame(0x181, bytes.fromhex("01 00 00 00 01 00 07 00"))
+    second = CanFrame(0x181, bytes.fromhex("02 00 00 00 02 00 08 00"))
+    device = FakeDevice(received=[[first, second]])
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    assert peer.read_feedback() == MODULE.Feedback(1, 10, 7)
+    assert peer.read_feedback() == MODULE.Feedback(2, 20, 8)
+    assert device.receive_calls == [(64, 0)]
+
+
+def test_read_preserves_relevant_frames_across_malformed_interleaving():
+    malformed = CanFrame(0x181, b"short")
+    health = CanFrame(0x281, bytes.fromhex("01 01 00 00 00 00 10 27"))
+    feedback = CanFrame(0x181, bytes.fromhex("03 00 00 00 03 00 09 00"))
+    device = FakeDevice(received=[[
+        malformed,
+        CanFrame(0x123, b"other"),
+        health,
+        feedback,
+    ]])
+    peer = MODULE.CanalystMotorPeer(device, node_id=1)
+    assert peer.read_health() == MODULE.Health(1, 1, 0, 0, 10000)
+    assert peer.read_feedback() == MODULE.Feedback(3, 30, 9)
+    assert device.receive_calls == [(64, 0)]
+
+
 def test_peer_rejects_wrong_node_and_incomplete_device_without_hardware_access():
-    expect_error(lambda: MODULE.CanalystMotorPeer(FakeDevice(), node_id=2))
+    for node_id in (2, True, 1.0):
+        expect_error(
+            lambda node_id=node_id: MODULE.CanalystMotorPeer(
+                FakeDevice(), node_id=node_id
+            )
+        )
     expect_error(lambda: MODULE.CanalystMotorPeer(object(), node_id=1), TypeError)
 
 
@@ -206,6 +292,12 @@ if __name__ == "__main__":
     test_preload_must_succeed_before_matching_sync()
     test_apply_point_preloads_then_syncs_same_session_and_sequence()
     test_command_sequence_rejection_is_wrap_aware_and_arm_resets_window()
+    test_motion_commands_before_successful_arm_send_no_frames()
+    test_failed_arm_does_not_authorize_motion_commands()
+    test_failed_sync_keeps_exact_preload_retryable_and_ordered()
     test_readers_filter_unrelated_malformed_and_stale_frames()
+    test_read_preserves_health_after_returning_earlier_feedback()
+    test_read_preserves_later_feedback_from_same_batch()
+    test_read_preserves_relevant_frames_across_malformed_interleaving()
     test_peer_rejects_wrong_node_and_incomplete_device_without_hardware_access()
     print("CANalyst Motor peer tests passed")
