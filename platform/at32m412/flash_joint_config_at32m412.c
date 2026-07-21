@@ -8,10 +8,10 @@
 #define JOINT_CFG_WORD_COUNT \
     (sizeof(joint_config_record_t) / sizeof(uint32_t))
 
-_Static_assert(sizeof(joint_config_record_t) == 36u,
-               "joint config record must occupy nine words");
-_Static_assert(JOINT_CFG_WORD_COUNT == 9u,
-               "joint config Flash write must program nine words");
+typedef char joint_config_record_size_must_be_36[
+    sizeof(joint_config_record_t) == 36u ? 1 : -1];
+typedef char joint_config_word_count_must_be_nine[
+    JOINT_CFG_WORD_COUNT == 9u ? 1 : -1];
 
 static const joint_config_record_t *flash_joint_config_latest(uint32_t *latest_addr)
 {

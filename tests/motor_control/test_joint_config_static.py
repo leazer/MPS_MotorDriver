@@ -49,6 +49,9 @@ def test_joint_storage_contract_uses_inactive_page_and_verified_word_write():
     assert "joint_config_generation_newer" in flash_source
     assert "joint_config_record_t" in flash_source
     assert "sizeof(joint_config_record_t) / sizeof(uint32_t)" in flash_source
+    assert "typedef char joint_config_record_size_must_be_36" in flash_source
+    assert "typedef char joint_config_word_count_must_be_nine" in flash_source
+    assert "_Static_assert" not in flash_source
     assert "flash_lock();" in flash_source
     assert "memcmp" in flash_source
 
