@@ -112,7 +112,12 @@ extern "C" {
 
 /* 位置环 */
 #define PID_POSITION_KP                 5.0f
-#define PID_POSITION_OUT_LIMIT          RPM_MAX
+#define POSITION_SPEED_LIMIT_RPM_ELEC   200.0f
+#define POSITION_SPEED_LIMIT_ELEC_RAD_S (POSITION_SPEED_LIMIT_RPM_ELEC * 6.28318530718f / 60.0f)
+#define POSITION_MAX_VELOCITY_MDEG_S    60000
+#define POSITION_MAX_ERROR_MDEG         30000
+#define POSITION_EXTRAPOLATION_LIMIT_MS 20u
+#define POSITION_LOOP_DIV               16u
 
 /* ===== 零点标定 (spec §4.5.3) ===== */
 #define ZERO_ALIGN_CURRENT_A            1.0f
