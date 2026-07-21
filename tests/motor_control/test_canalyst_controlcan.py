@@ -14,6 +14,22 @@ sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
 
+DWORD = ctypes.c_uint32
+UINT = ctypes.c_uint32
+ULONG = ctypes.c_uint32
+INT = ctypes.c_int32
+USHORT = ctypes.c_uint16
+BYTE = ctypes.c_uint8
+
+
+def assert_structure(structure, fields, offsets, size):
+    assert structure._fields_ == fields
+    assert {
+        name: getattr(structure, name).offset for name, _field_type in fields
+    } == offsets
+    assert ctypes.sizeof(structure) == size
+
+
 class FakeFunction:
     def __init__(self, expected_argtypes, restype, callback):
         self.expected_argtypes = expected_argtypes
@@ -43,6 +59,7 @@ class FakeLibrary:
         receive_result=None,
         reset_result=1,
         close_result=1,
+        board_info_result=1,
     ):
         self.calls = []
         self.init_config = None
@@ -56,57 +73,59 @@ class FakeLibrary:
         self.receive_result = receive_result
         self.reset_result = reset_result
         self.close_result = close_result
+        self.board_info_result = board_info_result
 
-        triple = [MODULE.DWORD, MODULE.DWORD, MODULE.DWORD]
+        triple = [DWORD, DWORD, DWORD]
         self.VCI_OpenDevice = FakeFunction(
-            triple, MODULE.DWORD, self._open
+            triple, DWORD, self._open
         )
         self.VCI_CloseDevice = FakeFunction(
-            [MODULE.DWORD, MODULE.DWORD], MODULE.DWORD, self._close
+            [DWORD, DWORD], DWORD, self._close
         )
         self.VCI_InitCAN = FakeFunction(
             triple + [ctypes.POINTER(MODULE.VCI_INIT_CONFIG)],
-            MODULE.DWORD,
+            DWORD,
             self._init,
         )
         self.VCI_ReadBoardInfo = FakeFunction(
-            [
-                MODULE.DWORD,
-                MODULE.DWORD,
-                ctypes.POINTER(MODULE.VCI_BOARD_INFO),
-            ],
-            MODULE.DWORD,
-            lambda *_args: 1,
+            [DWORD, DWORD, ctypes.POINTER(MODULE.VCI_BOARD_INFO)],
+            DWORD,
+            self._board_info,
         )
         self.VCI_ClearBuffer = FakeFunction(
-            triple, MODULE.DWORD, self._clear
+            triple, DWORD, self._clear
         )
         self.VCI_StartCAN = FakeFunction(
-            triple, MODULE.DWORD, self._start
+            triple, DWORD, self._start
         )
         self.VCI_ResetCAN = FakeFunction(
-            triple, MODULE.DWORD, self._reset
+            triple, DWORD, self._reset
         )
         self.VCI_Transmit = FakeFunction(
-            triple
-            + [ctypes.POINTER(MODULE.VCI_CAN_OBJ), MODULE.ULONG],
-            MODULE.ULONG,
+            triple + [ctypes.POINTER(MODULE.VCI_CAN_OBJ), ULONG],
+            ULONG,
             self._transmit,
         )
         self.VCI_Receive = FakeFunction(
             triple
             + [
                 ctypes.POINTER(MODULE.VCI_CAN_OBJ),
-                MODULE.ULONG,
-                MODULE.INT,
+                ULONG,
+                INT,
             ],
-            MODULE.ULONG,
+            ULONG,
             self._receive,
         )
 
+    @staticmethod
+    def _result_or_raise(result):
+        if isinstance(result, BaseException):
+            raise result
+        return result
+
     def _open(self, device_type, device_index, reserved):
         self.calls.append(("open", device_type, device_index, reserved))
-        return self.open_result
+        return self._result_or_raise(self.open_result)
 
     def _init(self, device_type, device_index, can_index, config_pointer):
         config = ctypes.cast(
@@ -121,15 +140,19 @@ class FakeLibrary:
             "Mode": config.Mode,
         }
         self.calls.append(("init", device_type, device_index, can_index))
-        return self.init_result
+        return self._result_or_raise(self.init_result)
+
+    def _board_info(self, device_type, device_index, _board_pointer):
+        self.calls.append(("board_info", device_type, device_index))
+        return self._result_or_raise(self.board_info_result)
 
     def _clear(self, device_type, device_index, can_index):
         self.calls.append(("clear", device_type, device_index, can_index))
-        return self.clear_result
+        return self._result_or_raise(self.clear_result)
 
     def _start(self, device_type, device_index, can_index):
         self.calls.append(("start", device_type, device_index, can_index))
-        return self.start_result
+        return self._result_or_raise(self.start_result)
 
     def _transmit(
         self, device_type, device_index, can_index, frame_pointer, count
@@ -153,7 +176,7 @@ class FakeLibrary:
                 "Reserved": bytes(frame.Reserved),
             }
         )
-        return self.transmit_result
+        return self._result_or_raise(self.transmit_result)
 
     def _receive(
         self, device_type, device_index, can_index, frames_pointer,
@@ -169,7 +192,7 @@ class FakeLibrary:
                 wait_ms,
             )
         )
-        result = (
+        result = self._result_or_raise(
             len(self.receive_frames)
             if self.receive_result is None
             else self.receive_result
@@ -193,25 +216,106 @@ class FakeLibrary:
 
     def _reset(self, device_type, device_index, can_index):
         self.calls.append(("reset", device_type, device_index, can_index))
-        return self.reset_result
+        return self._result_or_raise(self.reset_result)
 
     def _close(self, device_type, device_index):
         self.calls.append(("close", device_type, device_index))
-        return self.close_result
+        return self._result_or_raise(self.close_result)
 
 
 def expect_error(callback, error_type=(TypeError, ValueError)):
     try:
         callback()
-    except error_type:
-        pass
+    except error_type as caught:
+        return caught
     else:
         raise AssertionError("expected rejection")
 
 
+def test_vendor_structures_match_the_independent_controlcan_abi():
+    assert MODULE.DWORD is DWORD
+    assert MODULE.UINT is UINT
+    assert MODULE.ULONG is ULONG
+    assert MODULE.INT is INT
+    assert MODULE.USHORT is USHORT
+    assert MODULE.BYTE is BYTE
+    assert_structure(
+        MODULE.VCI_BOARD_INFO,
+        [
+            ("hw_Version", USHORT),
+            ("fw_Version", USHORT),
+            ("dr_Version", USHORT),
+            ("in_Version", USHORT),
+            ("irq_Num", USHORT),
+            ("can_Num", BYTE),
+            ("str_Serial_Num", ctypes.c_char * 20),
+            ("str_hw_Type", ctypes.c_char * 40),
+            ("Reserved", USHORT * 4),
+        ],
+        {
+            "hw_Version": 0,
+            "fw_Version": 2,
+            "dr_Version": 4,
+            "in_Version": 6,
+            "irq_Num": 8,
+            "can_Num": 10,
+            "str_Serial_Num": 11,
+            "str_hw_Type": 31,
+            "Reserved": 72,
+        },
+        80,
+    )
+    assert_structure(
+        MODULE.VCI_CAN_OBJ,
+        [
+            ("ID", UINT),
+            ("TimeStamp", UINT),
+            ("TimeFlag", BYTE),
+            ("SendType", BYTE),
+            ("RemoteFlag", BYTE),
+            ("ExternFlag", BYTE),
+            ("DataLen", BYTE),
+            ("Data", BYTE * 8),
+            ("Reserved", BYTE * 3),
+        ],
+        {
+            "ID": 0,
+            "TimeStamp": 4,
+            "TimeFlag": 8,
+            "SendType": 9,
+            "RemoteFlag": 10,
+            "ExternFlag": 11,
+            "DataLen": 12,
+            "Data": 13,
+            "Reserved": 21,
+        },
+        24,
+    )
+    assert_structure(
+        MODULE.VCI_INIT_CONFIG,
+        [
+            ("AccCode", DWORD),
+            ("AccMask", DWORD),
+            ("Reserved", DWORD),
+            ("Filter", BYTE),
+            ("Timing0", BYTE),
+            ("Timing1", BYTE),
+            ("Mode", BYTE),
+        ],
+        {
+            "AccCode": 0,
+            "AccMask": 4,
+            "Reserved": 8,
+            "Filter": 12,
+            "Timing0": 13,
+            "Timing1": 14,
+            "Mode": 15,
+        },
+        16,
+    )
+
+
 def test_confirmed_channel_configuration_and_structure_layout():
-    assert ctypes.sizeof(MODULE.VCI_CAN_OBJ) == 24
-    assert ctypes.sizeof(MODULE.VCI_INIT_CONFIG) == 16
     device = MODULE.ControlCanDevice("unused", library=FakeLibrary())
     device.open()
     assert device.library.init_config == {
@@ -233,6 +337,34 @@ def test_confirmed_channel_configuration_and_structure_layout():
 def test_every_vendor_function_has_the_exact_windows_signature():
     fake = FakeLibrary(receive_frames=[{"ID": 0x181, "Data": b"x"}])
     device = MODULE.ControlCanDevice("unused", library=fake).open()
+    triple = [DWORD, DWORD, DWORD]
+    expected = {
+        "VCI_OpenDevice": (triple, DWORD),
+        "VCI_CloseDevice": ([DWORD, DWORD], DWORD),
+        "VCI_InitCAN": (
+            triple + [ctypes.POINTER(MODULE.VCI_INIT_CONFIG)],
+            DWORD,
+        ),
+        "VCI_ReadBoardInfo": (
+            [DWORD, DWORD, ctypes.POINTER(MODULE.VCI_BOARD_INFO)],
+            DWORD,
+        ),
+        "VCI_ClearBuffer": (triple, DWORD),
+        "VCI_StartCAN": (triple, DWORD),
+        "VCI_ResetCAN": (triple, DWORD),
+        "VCI_Transmit": (
+            triple + [ctypes.POINTER(MODULE.VCI_CAN_OBJ), ULONG],
+            ULONG,
+        ),
+        "VCI_Receive": (
+            triple + [ctypes.POINTER(MODULE.VCI_CAN_OBJ), ULONG, INT],
+            ULONG,
+        ),
+    }
+    for name, (argtypes, restype) in expected.items():
+        function = getattr(fake, name)
+        assert function.argtypes == argtypes
+        assert function.restype is restype
     device.send(MODULE.CanFrame(0x080, b"12345678"))
     assert device.receive(max_frames=1, wait_ms=7) == [
         MODULE.CanFrame(0x181, b"x")
@@ -356,6 +488,31 @@ def test_open_stage_failures_cleanup_only_after_device_opened():
         assert fake.calls == expected_calls
 
 
+def test_non_ok_status_errors_name_operation_actual_and_expected_values():
+    for option, operation in (
+        ("open_result", "VCI_OpenDevice"),
+        ("init_result", "VCI_InitCAN"),
+        ("clear_result", "VCI_ClearBuffer"),
+        ("start_result", "VCI_StartCAN"),
+    ):
+        error = expect_error(
+            lambda option=option: MODULE.ControlCanDevice(
+                "unused", library=FakeLibrary(**{option: 2})
+            ).open(),
+            MODULE.ControlCanError,
+        )
+        assert str(error) == f"{operation} returned 2, expected 1"
+
+    fake = FakeLibrary(transmit_result=2)
+    device = MODULE.ControlCanDevice("unused", library=fake).open()
+    error = expect_error(
+        lambda: device.send(MODULE.CanFrame(0x080, b"stop")),
+        MODULE.ControlCanError,
+    )
+    assert str(error) == "VCI_Transmit returned 2, expected 1 frame"
+    device.close()
+
+
 def test_close_is_idempotent_and_aggregates_reset_and_close_failures():
     fake = FakeLibrary(reset_result=0, close_result=0)
     device = MODULE.ControlCanDevice("unused", library=fake).open()
@@ -367,7 +524,50 @@ def test_close_is_idempotent_and_aggregates_reset_and_close_failures():
         assert "close" in message
     else:
         raise AssertionError("both cleanup failures were swallowed")
+    calls_after_first_close = list(fake.calls)
     device.close()
+    device.close()
+    assert fake.calls == calls_after_first_close
+    assert calls_after_first_close[-2:] == [
+        ("reset", 4, 0, 0),
+        ("close", 4, 0),
+    ]
+
+
+def test_close_attempts_close_after_reset_exception_and_keeps_both_errors():
+    reset_error = RuntimeError("reset sentinel")
+    close_error = OSError("close sentinel")
+    fake = FakeLibrary(
+        reset_result=reset_error,
+        close_result=close_error,
+    )
+    device = MODULE.ControlCanDevice("unused", library=fake).open()
+    error = expect_error(device.close, MODULE.ControlCanError)
+    assert str(error) == (
+        "VCI_ResetCAN raised reset sentinel; "
+        "VCI_CloseDevice raised close sentinel"
+    )
+    assert fake.calls[-2:] == [("reset", 4, 0, 0), ("close", 4, 0)]
+
+
+def test_context_preserves_body_exception_and_complete_cleanup_note():
+    primary = ValueError("body sentinel")
+    fake = FakeLibrary(
+        reset_result=RuntimeError("reset sentinel"),
+        close_result=OSError("close sentinel"),
+    )
+    try:
+        with MODULE.ControlCanDevice("unused", library=fake):
+            raise primary
+    except ValueError as caught:
+        assert caught is primary
+        assert getattr(caught, "__notes__", ()) == [
+            "ControlCAN cleanup failed: "
+            "VCI_ResetCAN raised reset sentinel; "
+            "VCI_CloseDevice raised close sentinel"
+        ]
+    else:
+        raise AssertionError("body exception was swallowed")
     assert fake.calls[-2:] == [("reset", 4, 0, 0), ("close", 4, 0)]
 
 
@@ -376,12 +576,15 @@ def test_context_cleanup_runs_after_transmit_failure():
     try:
         with MODULE.ControlCanDevice("unused", library=fake) as device:
             device.send(MODULE.CanFrame(0x080, b"12345678"))
-    except MODULE.ControlCanError:
-        pass
+    except MODULE.ControlCanError as caught:
+        assert str(caught) == "VCI_Transmit returned 0, expected 1 frame"
+    else:
+        raise AssertionError("transmit failure was swallowed")
     assert fake.calls[-2:] == [("reset", 4, 0, 0), ("close", 4, 0)]
 
 
 if __name__ == "__main__":
+    test_vendor_structures_match_the_independent_controlcan_abi()
     test_confirmed_channel_configuration_and_structure_layout()
     test_every_vendor_function_has_the_exact_windows_signature()
     test_invalid_standard_identifier_and_dlc_are_rejected()
@@ -389,6 +592,9 @@ if __name__ == "__main__":
     test_receive_filters_nonstandard_frames_and_checks_vendor_bounds()
     test_receive_rejects_malformed_vendor_frames()
     test_open_stage_failures_cleanup_only_after_device_opened()
+    test_non_ok_status_errors_name_operation_actual_and_expected_values()
     test_close_is_idempotent_and_aggregates_reset_and_close_failures()
+    test_close_attempts_close_after_reset_exception_and_keeps_both_errors()
+    test_context_preserves_body_exception_and_complete_cleanup_note()
     test_context_cleanup_runs_after_transmit_failure()
     print("CANalyst ControlCAN tests passed")
