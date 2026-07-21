@@ -1024,6 +1024,8 @@ int motor_control_isr_position_start(const position_setpoint_t *setpoint)
 {
     motor_control_t *mc;
     encoder_snapshot_t encoder;
+    int32_t current_joint_mdeg;
+    int64_t first_error_mdeg;
 
     if (setpoint == 0) {
         return -2;
@@ -1041,6 +1043,15 @@ int motor_control_isr_position_start(const position_setpoint_t *setpoint)
     }
     if (fault_manager_any_fatal()) {
         return -1;
+    }
+
+    current_joint_mdeg = position_loop_sensor_to_joint_mdeg(
+        encoder.control_position_mdeg);
+    first_error_mdeg = (int64_t)setpoint->position_mdeg -
+                       (int64_t)current_joint_mdeg;
+    if (first_error_mdeg > (int64_t)POSITION_MAX_ERROR_MDEG ||
+        first_error_mdeg < -(int64_t)POSITION_MAX_ERROR_MDEG) {
+        return -5;
     }
 
     s_ol_active = false;

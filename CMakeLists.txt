@@ -51,6 +51,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/application/motor_control/current_reconstruction.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/speed_loop.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/position_loop.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/joint_config.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/joint_config_service.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/can_motion_service.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_control_isr.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/fault_manager.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_calibration.c
@@ -64,8 +67,10 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/platform/at32m412/current_sense_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_encoder_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/encoder_acq_timer_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/can_motion_timer_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/motor_protect_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/flash_calibration_at32m412.c
+    ${CMAKE_SOURCE_DIR}/platform/at32m412/flash_joint_config_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/clock_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/board_init_at32m412.c
     ${CMAKE_SOURCE_DIR}/platform/at32m412/board_usart1_dma.c

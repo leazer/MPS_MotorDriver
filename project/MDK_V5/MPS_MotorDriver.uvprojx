@@ -449,6 +449,16 @@
               <FilePath>..\..\application\motor_control\joint_config.c</FilePath>
             </File>
             <File>
+              <FileName>joint_config_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\joint_config_service.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_motion_service.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\can_motion_service.c</FilePath>
+            </File>
+            <File>
               <FileName>motor_control_isr.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\motor_control_isr.c</FilePath>
@@ -522,6 +532,11 @@
               <FileName>encoder_acq_timer_at32m412.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\platform\at32m412\encoder_acq_timer_at32m412.c</FilePath>
+            </File>
+            <File>
+              <FileName>can_motion_timer_at32m412.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\platform\at32m412\can_motion_timer_at32m412.c</FilePath>
             </File>
             <File>
               <FileName>motor_protect_at32m412.c</FileName>
