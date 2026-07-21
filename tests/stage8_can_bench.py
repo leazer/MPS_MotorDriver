@@ -31,7 +31,8 @@ _PHASES = ("static", "reversal", "sine")
 
 open_port = _STAGE7.open_port
 send_cmd = _STAGE7.send_cmd
-verify_final_safe_state = _STAGE7.verify_final_safe_state
+SAFE_DUTY_TICKS = _STAGE7._STAGE6.SAFE_DUTY_TICKS
+EXPECTED_SAMPLE_TICK = _STAGE7._STAGE6.EXPECTED_SAMPLE_TICK
 
 _CAN_STATUS_RE = re.compile(
     r"\Acs id=([0-9]+) s=([0-9]+) se=([0-9]+) p=([0-9]+) "
@@ -39,6 +40,12 @@ _CAN_STATUS_RE = re.compile(
     r"tx=([0-9]+) pe=([0-9]+) ro=([0-9]+) bo=([0-9]+) "
     r"te=([0-9]+) f=([0-9A-F]{8}) k=([0-9A-F]{8})(?:\r\n)?\Z"
 )
+
+_PWM_DUTY_RE = re.compile(
+    r"CCR1/2/3\s*:\s*(\d+)\s*/\s*(\d+)\s*/\s*(\d+)"
+)
+_PWM_TRIGGER_RE = re.compile(r"CCR4\s*:\s*(\d+)\b")
+_PWM_ENABLE_RE = re.compile(r"EN\(PB10\)\s*:\s*([01])\b")
 
 
 class BenchCleanupError(RuntimeError):
@@ -104,6 +111,41 @@ def parse_can_status(text):
     except (TypeError, ValueError):
         return None
     return values
+
+
+def parse_pwm_info(text):
+    """Parse the established Stage 6/7 safe-PWM fields from ``pwm_info``."""
+    if not isinstance(text, str):
+        return None
+    duty = _PWM_DUTY_RE.search(text)
+    trigger = _PWM_TRIGGER_RE.search(text)
+    enabled = _PWM_ENABLE_RE.search(text)
+    if duty is None or trigger is None or enabled is None:
+        return None
+    return {
+        "ccr1": int(duty.group(1)),
+        "ccr2": int(duty.group(2)),
+        "ccr3": int(duty.group(3)),
+        "ccr4": int(trigger.group(1)),
+        "en": int(enabled.group(1)),
+    }
+
+
+def assert_pwm_safe_state(serial):
+    """Independently query and assert the existing final PWM safety contract."""
+    text = send_cmd(serial, "pwm_info", timeout=1.0)
+    snapshot = parse_pwm_info(text)
+    if snapshot is None:
+        raise AssertionError("incomplete pwm_info reply")
+    expected_duties = (SAFE_DUTY_TICKS,) * 3
+    actual_duties = (snapshot["ccr1"], snapshot["ccr2"], snapshot["ccr3"])
+    if actual_duties != expected_duties:
+        raise AssertionError(f"unsafe PWM duties: {snapshot}")
+    if snapshot["ccr4"] != EXPECTED_SAMPLE_TICK:
+        raise AssertionError(f"unsafe ADC trigger: {snapshot}")
+    if snapshot["en"] != 0:
+        raise AssertionError(f"PWM output remains enabled: {snapshot}")
+    return snapshot
 
 
 def sequence_metrics(sequences, elapsed_s):
@@ -250,7 +292,7 @@ def run_can_bench(peer, serial_adapter=None, qualification=None,
                 cleanup_errors, lambda: send_cmd(serial, "mc_stop", timeout=1.0)
             )
             _record_cleanup_error(
-                cleanup_errors, lambda: verify_final_safe_state(serial)
+                cleanup_errors, lambda: assert_pwm_safe_state(serial)
             )
             if owned_serial:
                 _record_cleanup_error(cleanup_errors, serial.close)

@@ -84,3 +84,51 @@ tests only. A concrete CAN-peer qualification callback and powered Node 1 bench
 evidence remain Task 10 work. The mixed-instant driver telemetry remains as
 documented; its copied values are stable for formatting/checksum, while safety
 continues to use the independent fatal latch.
+
+## External Review Correction
+
+External review after commit `7bbbc58` identified three gaps. Each correction
+was test-driven and is included in the follow-up commit recorded by Git history.
+
+### Additional RED evidence
+
+- Driver getter RED: CAN static exited 1 because
+  `can_at32m412_get_diag()` still called `can_snapshot_error_state()`.
+- Independent PWM cleanup RED: Stage 8 tests exited 1 because
+  `parse_pwm_info()` did not exist and cleanup delegated to an opaque Stage 7
+  composite verifier.
+- Atomic gate/action RED: integration static exited 1 because there was no
+  single `motor_shell_can_diag_reset_if_safe()` critical-span helper.
+- Full read-only chain RED: the strengthened transitive checker exited 1
+  because `can_motion_service_get_snapshot()` called the mutating
+  `read_faults()` refresh helper.
+- ARMCC declaration RED: the first clean review-fix build reported two
+  implicit-declaration warnings for `rt_hw_interrupt_disable/enable`; a static
+  include contract then failed until `rthw.h` was included.
+
+### Corrections and mutation coverage
+
+- CAN status is now semantically read-only through both snapshot paths. The
+  driver getter copies only ISR-maintained fields; motion snapshot copies its
+  already-maintained fault field. Status/error IRQ paths retain hardware error
+  refresh responsibility. Function-scoped and transitive mutation tests reject
+  reintroducing refresh or diagnostic writes.
+- Cleanup now independently sends `mc_stop`, then always sends `pwm_info` and
+  parses/asserts EN=0, CCR1/2/3=2812, and CCR4=5264. Fake serial tests exercise
+  failed STOP, failed/unsafe PWM query, three failing peer STOP attempts,
+  cleanup-only aggregation, primary-exception preservation, and owned close.
+- One short RT interrupt critical span now checks control state, all five mode
+  flags, PWM EN, and exact motion READY before calling both owner reset APIs.
+  There is no logging/blocking in the span. Mutation tests reject READY changes
+  and either reset escaping the single disable/enable span.
+
+### Review-fix verification
+
+- Stage 8 parser/metrics/direct-PWM cleanup: PASS.
+- CAN integration/transitive/critical-span mutations: PASS.
+- CAN driver static: PASS (22 tests).
+- WSL service production: PASS, exit 0.
+- WSL service test-macro reset/saturation: PASS, exit 0.
+- WSL CAN protocol: PASS, exit 0.
+- Keil ARMCC5 clean: Code 57060, RO-data 6512, RW-data 696,
+  ZI-data 10728; 0 errors, 0 warnings.

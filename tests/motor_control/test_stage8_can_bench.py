@@ -160,13 +160,44 @@ class FakeSerial:
         self.closed = True
 
 
+SAFE_PWM_REPLY = (
+    "=== TMR1 PWM ===\r\n"
+    "CCR1/2/3 : 2812 / 2812 / 2812\r\n"
+    "CCR4     : 5264 (ADC trigger)\r\n"
+    "EN(PB10) : 0\r\n"
+    "msh />"
+)
+
+
+def pwm_command(events, fail_stop=False, pwm_reply=SAFE_PWM_REPLY,
+                fail_pwm=False):
+    def send(_serial, command, **_kwargs):
+        events.append(command)
+        if command == "mc_stop" and fail_stop:
+            raise RuntimeError("serial stop")
+        if command == "pwm_info":
+            if fail_pwm:
+                raise RuntimeError("pwm query")
+            return pwm_reply
+        return "all modes stopped"
+    return send
+
+
+def test_direct_pwm_parser_requires_independent_safe_en_and_ccr_contract():
+    assert BENCH.parse_pwm_info(SAFE_PWM_REPLY) == {
+        "ccr1": 2812, "ccr2": 2812, "ccr3": 2812,
+        "ccr4": 5264, "en": 0,
+    }
+    assert BENCH.parse_pwm_info(SAFE_PWM_REPLY.replace("EN(PB10) : 0", "EN(PB10) : 1"))["en"] == 1
+    assert BENCH.parse_pwm_info(SAFE_PWM_REPLY.replace("CCR4     : 5264", "CCR4     : xxxx")) is None
+
+
 def test_cleanup_order_count_and_owned_resource_close_on_success():
     events = []
     peer = FakePeer(events)
     serial = FakeSerial(events)
-    originals = BENCH.send_cmd, BENCH.verify_final_safe_state
-    BENCH.send_cmd = lambda _serial, command, **_kwargs: events.append(command) or ""
-    BENCH.verify_final_safe_state = lambda _serial: events.append("safe") or "SAFE"
+    original_send = BENCH.send_cmd
+    BENCH.send_cmd = pwm_command(events)
     try:
         result = BENCH.run_can_bench(
             peer,
@@ -174,12 +205,12 @@ def test_cleanup_order_count_and_owned_resource_close_on_success():
             serial_factory=lambda _port: serial,
         )
     finally:
-        BENCH.send_cmd, BENCH.verify_final_safe_state = originals
+        BENCH.send_cmd = original_send
     assert result == {"ok": 1}
     assert peer.stop_count == 3
     assert events == [
         "work", "peer_stop_1", "peer_stop_2", "peer_stop_3",
-        "mc_stop", "safe", "close",
+        "mc_stop", "pwm_info", "close",
     ]
     assert serial.closed
 
@@ -188,18 +219,12 @@ def test_cleanup_preserves_primary_error_and_continues_all_failure_paths():
     events = []
     peer = FakePeer(events, fail_stops=(1, 2, 3))
     serial = FakeSerial(events)
-    originals = BENCH.send_cmd, BENCH.verify_final_safe_state
-
-    def fail_command(_serial, command, **_kwargs):
-        events.append(command)
-        raise RuntimeError("serial stop")
-
-    def fail_safe(_serial):
-        events.append("safe")
-        raise RuntimeError("unsafe")
-
-    BENCH.send_cmd = fail_command
-    BENCH.verify_final_safe_state = fail_safe
+    original_send = BENCH.send_cmd
+    BENCH.send_cmd = pwm_command(
+        events, fail_stop=True,
+        pwm_reply=SAFE_PWM_REPLY.replace("CCR1/2/3 : 2812 / 2812 / 2812",
+                                         "CCR1/2/3 : 100 / 200 / 300"),
+    )
     primary = ValueError("metric failure")
     try:
         try:
@@ -214,9 +239,9 @@ def test_cleanup_preserves_primary_error_and_continues_all_failure_paths():
         else:
             raise AssertionError("primary error was swallowed")
     finally:
-        BENCH.send_cmd, BENCH.verify_final_safe_state = originals
+        BENCH.send_cmd = original_send
     assert events == [
-        "peer_stop_1", "peer_stop_2", "peer_stop_3", "mc_stop", "safe",
+        "peer_stop_1", "peer_stop_2", "peer_stop_3", "mc_stop", "pwm_info",
     ]
     assert not serial.closed
 
@@ -225,9 +250,8 @@ def test_cleanup_only_failure_is_reported_after_every_attempt():
     events = []
     peer = FakePeer(events, fail_stops=(2,))
     serial = FakeSerial(events)
-    originals = BENCH.send_cmd, BENCH.verify_final_safe_state
-    BENCH.send_cmd = lambda _serial, command, **_kwargs: events.append(command) or ""
-    BENCH.verify_final_safe_state = lambda _serial: events.append("safe") or "SAFE"
+    original_send = BENCH.send_cmd
+    BENCH.send_cmd = pwm_command(events)
     try:
         try:
             BENCH.run_can_bench(
@@ -239,9 +263,31 @@ def test_cleanup_only_failure_is_reported_after_every_attempt():
         else:
             raise AssertionError("cleanup failure was swallowed")
     finally:
-        BENCH.send_cmd, BENCH.verify_final_safe_state = originals
+        BENCH.send_cmd = original_send
     assert peer.stop_count == 3
-    assert events[-2:] == ["mc_stop", "safe"]
+    assert events[-2:] == ["mc_stop", "pwm_info"]
+
+
+def test_pwm_query_failure_is_aggregated_after_mc_stop_attempt():
+    events = []
+    peer = FakePeer(events)
+    serial = FakeSerial(events)
+    original_send = BENCH.send_cmd
+    BENCH.send_cmd = pwm_command(events, fail_pwm=True)
+    try:
+        try:
+            BENCH.run_can_bench(
+                peer, serial_adapter=serial,
+                qualification=lambda *_args: {"ok": 1},
+            )
+        except BENCH.BenchCleanupError as caught:
+            assert len(caught.errors) == 1
+            assert "pwm query" in str(caught)
+        else:
+            raise AssertionError("PWM query failure was swallowed")
+    finally:
+        BENCH.send_cmd = original_send
+    assert events[-2:] == ["mc_stop", "pwm_info"]
 
 
 def test_serial_setup_failure_still_attempts_peer_stop_three_times():
@@ -266,8 +312,10 @@ if __name__ == "__main__":
     test_parser_enforces_source_widths_and_uint32_checksum_masking()
     test_sequence_metrics_are_wrap_aware_and_validate_inputs()
     test_error_timeout_and_driver_metrics_are_explicit_and_checked()
+    test_direct_pwm_parser_requires_independent_safe_en_and_ccr_contract()
     test_cleanup_order_count_and_owned_resource_close_on_success()
     test_cleanup_preserves_primary_error_and_continues_all_failure_paths()
     test_cleanup_only_failure_is_reported_after_every_attempt()
+    test_pwm_query_failure_is_aggregated_after_mc_stop_attempt()
     test_serial_setup_failure_still_attempts_peer_stop_three_times()
     print("stage8 CAN bench tests passed")

@@ -261,7 +261,6 @@ void can_at32m412_get_diag(can_at32m412_diag_t *out)
         return;
     }
 
-    can_snapshot_error_state();
     out->rec = s_diag.rec;
     out->tec = s_diag.tec;
     out->error_passive = s_diag.error_passive;

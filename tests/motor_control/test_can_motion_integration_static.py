@@ -287,21 +287,60 @@ def assert_can_shell_contract(shell):
                     "force_stop"):
         assert mutator not in status
 
-    assert "motor_shell_reject_if_running()" in reset
-    assert "can_motion_service_get_snapshot(&motion)" in reset
-    assert "motion.state != CAN_NODE_STATE_READY" in reset
-    assert "gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN)" in reset
-    assert "can_motion_service_reset_diagnostics();" in reset
-    assert "can_at32m412_reset_diagnostics();" in reset
-    assert reset.index("motor_shell_reject_if_running") < reset.index(
-        "can_motion_service_reset_diagnostics"
+    assert "motor_shell_can_diag_reset_if_safe()" in reset
+    assert "can_motion_service_reset_diagnostics" not in reset
+    assert "can_at32m412_reset_diagnostics" not in reset
+
+
+def assert_can_status_transitively_read_only(shell, driver_source,
+                                             service_source):
+    status = function_body(shell, "static void can_status(")
+    getter = function_body(driver_source, "void can_at32m412_get_diag(")
+    motion_getter = function_body(
+        service_source, "bool can_motion_service_get_snapshot("
     )
-    assert reset.index("motion.state != CAN_NODE_STATE_READY") < reset.index(
-        "can_motion_service_reset_diagnostics"
+    assert "can_at32m412_get_diag(&driver);" in status
+    for body in (status, getter):
+        assert "can_snapshot_error_state" not in body
+        assert "can_at32m412_reset_diagnostics" not in body
+        assert "can_motion_service_reset_diagnostics" not in body
+        assert "can_motion_service_force_stop" not in body
+    assert not re.search(
+        r"\bs_diag\s*\.[A-Za-z0-9_]+\s*(?:=|\+\+|--)", getter
     )
-    assert reset.index("gpio_input_data_bit_read") < reset.index(
-        "can_motion_service_reset_diagnostics"
+    assert "read_faults" not in motion_getter
+    assert "increment_" not in motion_getter
+    assert not re.search(
+        r"\bs_service\s*\.[A-Za-z0-9_]+\s*(?:=|\+\+|--)", motion_getter
     )
+
+
+def assert_atomic_can_reset_gate(shell):
+    helper = normalized(function_body(
+        shell, "static can_diag_reset_result_t motor_shell_can_diag_reset_if_safe("
+    ))
+    assert helper.count("rt_hw_interrupt_disable();") == 1
+    assert helper.count("rt_hw_interrupt_enable(level);") == 1
+    disable = helper.index("level = rt_hw_interrupt_disable();")
+    enable = helper.rindex("rt_hw_interrupt_enable(level);")
+    checks = [
+        "motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED",
+        "!motor_control_isr_open_loop_active()",
+        "!motor_control_isr_align_active()",
+        "!motor_control_isr_current_active()",
+        "!motor_control_isr_speed_active()",
+        "!motor_control_isr_position_active()",
+        "gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) == RESET",
+        "can_motion_service_get_snapshot(&motion)",
+        "motion.state == CAN_NODE_STATE_READY",
+    ]
+    for check in checks:
+        assert check in helper
+        assert disable < helper.index(check) < enable
+    motion_reset = helper.index("can_motion_service_reset_diagnostics();")
+    driver_reset = helper.index("can_at32m412_reset_diagnostics();")
+    assert disable < motion_reset < driver_reset < enable
+    assert "rt_kprintf" not in helper
 
 
 def assert_reset_api_contract(service_h, service_c, can_h, can_c):
@@ -355,7 +394,12 @@ def test_first_target_distance_is_checked_before_any_start_mutation():
 
 
 def test_checked_can_shell_and_reset_ownership_contracts():
-    assert_can_shell_contract(read(SHELL_C))
+    shell = read(SHELL_C)
+    driver = read(CAN_C)
+    assert "#include <rthw.h>" in shell
+    assert_can_shell_contract(shell)
+    assert_can_status_transitively_read_only(shell, driver, read(SERVICE_C))
+    assert_atomic_can_reset_gate(shell)
     assert_reset_api_contract(read(SERVICE_H), read(SERVICE_C),
                               read(CAN_H), read(CAN_C))
     uart = read(USART_DMA_H)
@@ -425,10 +469,32 @@ def test_contract_checkers_reject_scoped_mutations():
         "0x43414E31u", "0x43414E30u"
     )
     assert_mutation_rejected(
-        assert_can_shell_contract, shell, "static void can_diag_reset(",
-        "motion.state != CAN_NODE_STATE_READY",
-        "motion.state != CAN_NODE_STATE_ARMED"
+        assert_atomic_can_reset_gate, shell,
+        "static can_diag_reset_result_t motor_shell_can_diag_reset_if_safe(",
+        "motion.state == CAN_NODE_STATE_READY",
+        "motion.state == CAN_NODE_STATE_ARMED"
     )
+    for reset_call in (
+        "can_motion_service_reset_diagnostics();",
+        "can_at32m412_reset_diagnostics();",
+    ):
+        assert_mutation_rejected(
+            assert_atomic_can_reset_gate, shell,
+            "static can_diag_reset_result_t motor_shell_can_diag_reset_if_safe(",
+            reset_call,
+            "rt_hw_interrupt_enable(level);\n                " + reset_call,
+        )
+    driver = read(CAN_C)
+    mutated = mutate_function(
+        driver, "void can_at32m412_get_diag(",
+        "if (out == NULL)", "can_snapshot_error_state();\n    if (out == NULL)"
+    )
+    try:
+        assert_can_status_transitively_read_only(shell, mutated, read(SERVICE_C))
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("transitive checker accepted refreshing getter")
 
 
 def test_all_task_sources_are_linked_once_in_both_builds():

@@ -614,7 +614,7 @@ bool can_motion_service_get_snapshot(can_motion_snapshot_t *out)
     out->tx_frames = s_service.tx_frames;
     out->tx_failures = s_service.tx_failures;
     out->protocol_errors = s_service.protocol_errors;
-    out->fault_bits = read_faults();
+    out->fault_bits = s_service.fault_bits;
     out->joint_ready = s_service.joint_ready;
     out->pending_valid = s_service.pending_valid;
     out->applied_valid = s_service.applied_valid;

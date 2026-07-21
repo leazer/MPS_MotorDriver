@@ -43,6 +43,15 @@ def block_after(source, marker):
     raise AssertionError(f"unterminated block after {marker}")
 
 
+def assert_diagnostic_getter_read_only(source):
+    getter = function_body(source, "can_at32m412_get_diag")
+    assert "can_snapshot_error_state" not in getter
+    assert "can_sat_increment" not in getter
+    assert not re.search(r"\bs_diag\s*\.[A-Za-z0-9_]+\s*(?:=|\+\+|--)", getter)
+    for mutator in ("can_at32m412_reset_diagnostics", "can_busoff_reset"):
+        assert mutator not in getter
+
+
 def test_public_api_and_diagnostics_contract():
     header = read(HEADER)
     declarations = (
@@ -324,6 +333,8 @@ def test_status_error_capture_is_latched_and_saturating():
     assert "can_busoff_reset" not in source
     assert "can_sat_increment" in status and "status_irqs" in status
     assert "can_sat_increment" in error and "error_irqs" in error
+    assert "can_snapshot_error_state();" in status
+    assert "can_snapshot_error_state();" in error
     assert "can_flag_clear" in status and "can_flag_clear" in error
 
 
@@ -337,15 +348,19 @@ def test_diagnostic_counter_increment_saturates_at_uint32_max():
 
 def test_diagnostic_getter_documents_and_implements_mixed_snapshot_contract():
     header = read(HEADER)
-    getter = function_body(read(SOURCE), "can_at32m412_get_diag")
+    source = read(SOURCE)
+    getter = function_body(source, "can_at32m412_get_diag")
     for phrase in (
         "eventually consistent",
         "not a transactional snapshot",
-        "32-bit fields are individually atomic on Cortex-M4",
+        "32-bit fields are",
+        "individually atomic on Cortex-M4",
+        "never refreshes hardware or mutates diagnostics",
         "can_at32m412_fatal_bus_error()",
     ):
         assert phrase in header, f"missing diagnostic contract phrase: {phrase}"
     assert "nvic_irq_disable" not in getter and "__disable_irq" not in getter
+    assert_diagnostic_getter_read_only(source)
     for field in (
         "rec", "tec", "error_passive", "bus_off_latched", "fatal_latched",
         "rx_received", "rx_rejected", "rx_overflow", "tx_queued",
@@ -353,6 +368,21 @@ def test_diagnostic_getter_documents_and_implements_mixed_snapshot_contract():
         "bus_off_events",
     ):
         assert f"out->{field} = s_diag.{field};" in getter
+
+
+def test_read_only_getter_checker_rejects_refresh_mutation():
+    source = read(SOURCE)
+    marker = "void can_at32m412_get_diag(can_at32m412_diag_t *out)\n{"
+    assert marker in source
+    mutated = source.replace(
+        marker, marker + "\n    can_snapshot_error_state();", 1
+    )
+    try:
+        assert_diagnostic_getter_read_only(mutated)
+    except AssertionError:
+        pass
+    else:
+        raise AssertionError("getter checker accepted a state-refresh mutation")
 
 
 def test_irq_wrappers_are_only_the_four_adapter_calls():

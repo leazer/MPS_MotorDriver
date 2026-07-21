@@ -9,6 +9,7 @@
  * 注意: ARMCC V5.06 默认 C90, 变量声明必须在块开头 (无语句后声明).
  */
 #include <rtthread.h>
+#include <rthw.h>
 #include <finsh.h>
 #include <stdlib.h>     /* atoi / strtol */
 #include <errno.h>
@@ -785,27 +786,63 @@ static void can_status(int argc, char **argv)
 }
 MSH_CMD_EXPORT(can_status, show checked CAN motion and driver diagnostics);
 
+typedef enum {
+    CAN_DIAG_RESET_OK = 0,
+    CAN_DIAG_RESET_MOTOR_ACTIVE,
+    CAN_DIAG_RESET_PWM_ACTIVE,
+    CAN_DIAG_RESET_NOT_READY,
+} can_diag_reset_result_t;
+
+static can_diag_reset_result_t motor_shell_can_diag_reset_if_safe(void)
+{
+    const motor_control_t *control;
+    can_motion_snapshot_t motion;
+    can_diag_reset_result_t result;
+    rt_base_t level;
+
+    result = CAN_DIAG_RESET_MOTOR_ACTIVE;
+    level = rt_hw_interrupt_disable();
+    control = motor_app_get_control();
+    if (control != NULL &&
+        motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED &&
+        !motor_control_isr_open_loop_active() &&
+        !motor_control_isr_align_active() &&
+        !motor_control_isr_current_active() &&
+        !motor_control_isr_speed_active() &&
+        !motor_control_isr_position_active()) {
+        if (gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) == RESET) {
+            if (can_motion_service_get_snapshot(&motion) &&
+                motion.state == CAN_NODE_STATE_READY) {
+                can_motion_service_reset_diagnostics();
+                can_at32m412_reset_diagnostics();
+                result = CAN_DIAG_RESET_OK;
+            } else {
+                result = CAN_DIAG_RESET_NOT_READY;
+            }
+        } else {
+            result = CAN_DIAG_RESET_PWM_ACTIVE;
+        }
+    }
+    rt_hw_interrupt_enable(level);
+    return result;
+}
+
 /* ---- can_diag_reset: clear counters only while every output is safe ---- */
 static void can_diag_reset(int argc, char **argv)
 {
-    can_motion_snapshot_t motion;
+    can_diag_reset_result_t result;
 
     (void)argc; (void)argv;
-    if (motor_shell_reject_if_running()) {
-        return;
-    }
-    if (!can_motion_service_get_snapshot(&motion) ||
-        motion.state != CAN_NODE_STATE_READY) {
+    result = motor_shell_can_diag_reset_if_safe();
+    if (result == CAN_DIAG_RESET_OK) {
+        rt_kprintf("CAN diagnostics reset\n");
+    } else if (result == CAN_DIAG_RESET_NOT_READY) {
         rt_kprintf("FAIL: can_diag_reset requires CAN READY\n");
-        return;
-    }
-    if (gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) != RESET) {
+    } else if (result == CAN_DIAG_RESET_PWM_ACTIVE) {
         rt_kprintf("FAIL: can_diag_reset requires MP6540H EN=LOW\n");
-        return;
+    } else {
+        rt_kprintf("FAIL: can_diag_reset requires every motor mode disabled\n");
     }
-    can_motion_service_reset_diagnostics();
-    can_at32m412_reset_diagnostics();
-    rt_kprintf("CAN diagnostics reset\n");
 }
 MSH_CMD_EXPORT(can_diag_reset, reset cumulative CAN diagnostics while stopped and READY);
 
