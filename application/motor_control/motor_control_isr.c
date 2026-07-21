@@ -18,6 +18,7 @@
 #include "motor_pwm_at32m412.h"
 #include "current_sense_at32m412.h"
 #include "encoder_tracker.h"
+#include "encoder_service.h"
 #include "motor_calibration.h"
 #include "fault_manager.h"
 #include "motor_params.h"

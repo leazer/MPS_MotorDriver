@@ -20,7 +20,9 @@ def function_body(source, signature, next_signature):
 
 def test_position_isr_public_api_exists():
     header = read(ISR_H)
+    source = read(ISR_C)
     assert '#include "position_loop.h"' in header
+    assert '#include "encoder_service.h"' in source
     for token in [
         "motor_control_isr_position_start",
         "motor_control_isr_position_submit",
