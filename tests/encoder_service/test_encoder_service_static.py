@@ -56,6 +56,17 @@ def test_control_angle_and_speed_share_encoder_direction():
     assert "mech_speed *= (int32_t)MOTOR_ENCODER_DIRECTION" in source
 
 
+def test_control_position_is_continuous_calibrated_and_direction_normalized():
+    header = read(HEADER)
+    source = read(SOURCE)
+    assert "int32_t  control_position_mdeg;" in header
+    assert "encoder_service_get_control_position_mdeg" in header
+    assert "s_snapshot.corrected_unwrapped" in source
+    assert "(int64_t)MOTOR_ENCODER_DIRECTION" in source
+    assert "360000LL" in source
+    assert "encoder_control_position_mdeg" in source
+
+
 def test_speed_window_limits_feedback_delay_to_4_ms():
     source = read(SOURCE)
     assert "#define ENC_SPEED_WINDOW_SAMPLES    16u" in source
@@ -203,6 +214,7 @@ if __name__ == "__main__":
     test_encoder_service_public_api_exists()
     test_snapshot_exposes_raw_and_calibrated_electrical_angles()
     test_control_angle_and_speed_share_encoder_direction()
+    test_control_position_is_continuous_calibrated_and_direction_normalized()
     test_speed_window_limits_feedback_delay_to_4_ms()
     test_encoder_service_source_is_in_build()
     test_encoder_service_source_is_in_keil_project()

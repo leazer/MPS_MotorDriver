@@ -13,6 +13,7 @@ typedef struct {
     uint16_t corrected_raw16;
     int32_t  raw_unwrapped;
     int32_t  corrected_unwrapped;
+    int32_t  control_position_mdeg;
     int16_t  raw_delta;
     int16_t  corrected_delta;
     int32_t  mech_mdeg;
@@ -41,6 +42,7 @@ int  encoder_service_poll_once_thread(void);
 bool encoder_service_get_snapshot(encoder_snapshot_t *out);
 float encoder_service_get_electrical_angle_rad(void);
 float encoder_service_get_speed_electrical_rad_s(void);
+int32_t encoder_service_get_control_position_mdeg(void);
 uint16_t encoder_service_get_raw16(void);
 void encoder_service_set_zero(uint16_t raw);
 uint16_t encoder_service_get_zero(void);

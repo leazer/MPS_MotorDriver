@@ -71,10 +71,44 @@ static void test_direction_normalization_handles_raw_wrap(void)
     assert(snap.elec_mrad <= 11);
 }
 
+static void test_control_position_is_continuous_and_direction_normalized(void)
+{
+    int16_t zero_table[CAL_TABLE_POINTS];
+    encoder_snapshot_t snap;
+    int32_t previous;
+    const uint16_t samples[] = {20u, 10u, 0u, 65530u, 65520u};
+    size_t i;
+
+    memset(zero_table, 0, sizeof(zero_table));
+    encoder_service_init();
+    encoder_service_set_zero(1000u);
+    encoder_service_set_calibration_table(zero_table, true);
+
+    assert(encoder_service_update_sample(900u, 0, 1u) == 0);
+    assert(encoder_service_get_snapshot(&snap));
+    assert(snap.control_position_mdeg >= 548);
+    assert(snap.control_position_mdeg <= 550);
+    assert(encoder_service_get_control_position_mdeg() ==
+           snap.control_position_mdeg);
+
+    encoder_service_init();
+    encoder_service_set_zero(20u);
+    encoder_service_set_calibration_table(zero_table, true);
+    previous = -1;
+    for (i = 0u; i < sizeof(samples) / sizeof(samples[0]); ++i) {
+        assert(encoder_service_update_sample(samples[i], 0, 1u) == 0);
+        assert(encoder_service_get_snapshot(&snap));
+        assert(snap.control_position_mdeg >= previous);
+        assert(snap.control_position_mdeg < 1000);
+        previous = snap.control_position_mdeg;
+    }
+}
+
 int main(void)
 {
     test_decreasing_raw_is_positive_control_direction();
     test_direction_normalization_handles_raw_wrap();
+    test_control_position_is_continuous_and_direction_normalized();
     printf("encoder direction tests passed\n");
     return 0;
 }

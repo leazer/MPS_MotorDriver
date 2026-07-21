@@ -59,6 +59,15 @@ static int32_t encoder_mech_mdeg_from_raw(uint16_t raw)
     return (int32_t)((uint32_t)raw * 360000u / 65536u);
 }
 
+static int32_t encoder_control_position_mdeg(int32_t corrected_unwrapped)
+{
+    int64_t counts;
+
+    counts = (int64_t)corrected_unwrapped - (int64_t)s_zero_raw;
+    counts *= (int64_t)MOTOR_ENCODER_DIRECTION;
+    return (int32_t)((counts * 360000LL) / 65536LL);
+}
+
 static int32_t encoder_elec_mrad_from_position(uint16_t position)
 {
     uint16_t mech_diff;
@@ -153,6 +162,8 @@ static int encoder_accept_sample(uint16_t raw, int16_t speed, int16_t delta)
     s_snapshot.raw16 = raw;
     s_snapshot.corrected_raw16 = corrected;
     s_snapshot.corrected_delta = corrected_delta;
+    s_snapshot.control_position_mdeg =
+        encoder_control_position_mdeg(s_snapshot.corrected_unwrapped);
     s_snapshot.speed_raw = speed;
     s_snapshot.mech_mdeg = encoder_mech_mdeg_from_raw(raw);
     s_snapshot.raw_elec_mrad = encoder_elec_mrad_from_position(raw);
@@ -267,6 +278,11 @@ float encoder_service_get_speed_electrical_rad_s(void)
     return ((float)s_snapshot.speed_elec_mrad_s) / 1000.0f;
 }
 
+int32_t encoder_service_get_control_position_mdeg(void)
+{
+    return s_snapshot.control_position_mdeg;
+}
+
 uint16_t encoder_service_get_raw16(void)
 {
     return s_snapshot.raw16;
@@ -312,6 +328,8 @@ void encoder_service_reset_diagnostics(void)
     s_snapshot.corrected_raw16 = corrected;
     s_snapshot.raw_unwrapped = unwrapped;
     s_snapshot.corrected_unwrapped = corrected_unwrapped;
+    s_snapshot.control_position_mdeg =
+        encoder_control_position_mdeg(corrected_unwrapped);
     s_snapshot.valid = valid;
     s_has_prev = false;
     s_has_corrected_prev = false;
