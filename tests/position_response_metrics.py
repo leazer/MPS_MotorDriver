@@ -20,6 +20,7 @@ PositionResponseMetrics = namedtuple(
         "rx_overflow_delta",
         "bus_off_delta",
         "tx_error_delta",
+        "discarded_spikes",
     ),
 )
 
@@ -117,6 +118,26 @@ def _endpoint_holds(samples):
     return holds
 
 
+def _discard_isolated_spikes(samples):
+    """Remove only single-sample, physically discontinuous telemetry tears."""
+    if len(samples) < 3:
+        return samples, 0
+    keep = [samples[0]]
+    discarded = 0
+    for index in range(1, len(samples) - 1):
+        previous = samples[index - 1]["measured_mdeg"]
+        current = samples[index]["measured_mdeg"]
+        following = samples[index + 1]["measured_mdeg"]
+        if (abs(current - previous) > 10000 and
+                abs(following - current) > 10000 and
+                abs(following - previous) <= 5000):
+            discarded += 1
+            continue
+        keep.append(samples[index])
+    keep.append(samples[-1])
+    return keep, discarded
+
+
 def _settle_ms(samples, begin, end):
     target = samples[begin]["target_mdeg"]
     for index in range(begin, end):
@@ -128,6 +149,7 @@ def _settle_ms(samples, begin, end):
 
 def summarize(records):
     samples = _checked_samples(records)
+    samples, discarded_spikes = _discard_isolated_spikes(samples)
     holds = _endpoint_holds(samples)
     endpoints = []
     plateaus = []
@@ -168,6 +190,7 @@ def summarize(records):
         rx_overflow_delta=deltas["rx_overflows"],
         bus_off_delta=deltas["bus_off_events"],
         tx_error_delta=deltas["tx_errors"],
+        discarded_spikes=discarded_spikes,
     )
 
 

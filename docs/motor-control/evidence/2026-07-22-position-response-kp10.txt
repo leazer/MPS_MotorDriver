@@ -1,0 +1,47 @@
+Node 1 realtime-CAN position response, Kp=10.0 — 2026-07-22
+
+Entry condition
+---------------
+Kp=7.5 produced a 7.806 deg settled endpoint span for a 10.000 deg command
+span and did not settle inside +/-0.5 deg during the endpoint holds.  Its
+overshoot, current, CAN timing, error counters, and final safe state were
+clean, so the approved Kp=10.0 trial entry condition was satisfied.
+
+Change and verification
+-----------------------
+Only PID_POSITION_KP changed from 7.5f to 10.0f.  The profile test was first
+observed RED at 7.5f, then GREEN at 10.0f.  All 30 Python tests, strict GCC
+control/CAN tests, and the Keil ARMCC5 build passed.  Keil reported 0 errors,
+0 warnings; Code=57084, RO-data=6512, RW-data=696, ZI-data=10728.  The
+user-owned uvprojx SHA-256 remained
+10D8326F613F07A1CFFAEEEC81F6C55CCE63E4A073067FBDC87C9EBB26B08D69.
+
+Raw record and metrics
+----------------------
+- File: 2026-07-22-position-response-kp10.raw.jsonl
+- SHA-256: 5B3B2B905D8A04164E69C05BCACD4004C0B3E72F2BB52F18729308C046A69083
+- 60 s, 1200 checked samples.
+- Command span: 10.000 deg.
+- Settled endpoint span: 7.921 deg.
+- Unsettled endpoints: 32; maximum settling time was not reached.
+- Maximum endpoint overshoot: 0.000 deg after isolated-spike filtering.
+- Peak |Iq_ref|: 0.102 A.
+- Maximum RUNNING sync_age: 9 ms.
+- protocol_error/RX-overflow/bus-off/TX-error deltas: 0/0/0/0; fault=0.
+- Discarded isolated telemetry spikes: 1.
+
+Telemetry anomaly
+-----------------
+At 48611 ms one checksum-valid status snapshot reports active=1 and zero
+target/reference/measured position while the measured speed is -1337 mdeg/s.
+The adjacent checked samples are 74.492 deg and 77.316 deg.  The metric helper
+records and removes this single-frame, >10 deg out-and-back discontinuity;
+continuous excursions are not filtered.  The raw sample remains preserved.
+
+Decision and cleanup
+--------------------
+Kp=10.0 is rejected.  It still fails both the >=9.5 deg span and <=350 ms
+settling gates and improves span by only 0.115 deg over the Kp=7.5 trial.
+PID_POSITION_KP and its profile test were restored to 7.5f, rebuilt, and
+flashed.  Final Node 1 state: DISABLED, fault=0, EN=0,
+CCR1/2/3=2812/2812/2812.  X-Track was halted before mc_stop.

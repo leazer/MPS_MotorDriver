@@ -86,6 +86,14 @@ def main():
     assert metrics.unsettled_endpoints == 0, metrics
     assert metrics.max_overshoot_deg == 0.3, metrics
     assert metrics.peak_abs_iq_a == 0.18, metrics
+    assert metrics.discarded_spikes == 0, metrics
+
+    torn_snapshot = copy.deepcopy(baseline)
+    torn_snapshot.insert(3, sample(250, 0, 70000, 0, session=1))
+    filtered = module.summarize(torn_snapshot)
+    assert filtered.max_overshoot_deg == 0.3, filtered
+    assert filtered.measured_span_deg == 9.6, filtered
+    assert filtered.discarded_spikes == 1, filtered
 
     missing_reversal = baseline[:6] + [baseline[-1]]
     expect_value_error(module, missing_reversal)
