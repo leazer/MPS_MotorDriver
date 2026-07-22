@@ -114,7 +114,7 @@ extern "C" {
 #define RPM_MAX                         3000
 
 /* 位置环 */
-#define PID_POSITION_KP                 5.0f
+#define PID_POSITION_KP                 7.5f
 #define POSITION_SPEED_LIMIT_RPM_ELEC   200.0f
 #define POSITION_SPEED_LIMIT_ELEC_RAD_S (POSITION_SPEED_LIMIT_RPM_ELEC * 6.28318530718f / 60.0f)
 #define POSITION_MAX_VELOCITY_MDEG_S    60000

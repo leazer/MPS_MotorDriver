@@ -1,0 +1,47 @@
+Node 1 realtime-CAN position response, Kp=7.5 — 2026-07-22
+
+Change under test
+-----------------
+Only PID_POSITION_KP changed from 5.0f to 7.5f.  PID_SPEED_KP=0.01f,
+PID_SPEED_KI=0.01f, SPEED_IQ_LIMIT_A=0.5f, and
+POSITION_IQ_FRICTION_MOVING_A=0.04f remained unchanged.
+
+Software/build verification
+---------------------------
+- 30 Python static/unit scripts: PASS.
+- Strict GCC encoder/current/speed/position/fault/CAN tests: PASS.
+- GCC Debug firmware build: PASS; text=99332, data=304, bss=11488 bytes.
+- Keil ARMCC5 clean build: 0 errors, 0 warnings; Code=57084,
+  RO-data=6512, RW-data=696, ZI-data=10728.
+- User-owned MPS_MotorDriver.uvprojx SHA-256 remained
+  10D8326F613F07A1CFFAEEEC81F6C55CCE63E4A073067FBDC87C9EBB26B08D69.
+
+Raw record
+----------
+- File: 2026-07-22-position-response-kp7p5.raw.jsonl
+- SHA-256: 6CA27CBA996A58A373E42D1B81E113C1B6301F6FFD2527F0EF7DDB4501FAEEDF
+- 60 s, 1200 checked samples, same X-Track commissioning image and capture
+  method as the Kp=5 baseline.
+
+Metrics
+-------
+- Command span: 10.000 deg.
+- Settled endpoint span: 7.806 deg (Kp=5: 7.015 deg).
+- Unsettled endpoints: 37; maximum settling time was not reached during the
+  500 ms endpoint holds.
+- Maximum observed endpoint overshoot: 0.000 deg.
+- Peak |Iq_ref|: 0.091 A.
+- Maximum sync_age while CAN state RUNNING: 15 ms.
+- protocol_error/RX-overflow/bus-off/TX-error deltas: 0/0/0/0; fault=0.
+
+Decision
+--------
+Kp=7.5 improves span but fails the >=9.5 deg span and <=350 ms settling gates.
+Overshoot, current, CAN timing, error counters, and safety remain clean, so the
+named entry condition for a Kp=10.0 trial is satisfied.  No other gain or
+limit is changed for that trial.
+
+Cleanup
+-------
+The capture script halted X-Track before mc_stop.  Final Node 1 state was
+DISABLED, fault=0, EN=0, and CCR1/2/3=2812/2812/2812.
