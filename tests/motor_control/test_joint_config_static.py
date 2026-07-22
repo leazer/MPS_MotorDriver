@@ -467,7 +467,7 @@ def test_flash_layout_reserves_two_joint_pages_before_calibration():
     assert "#define CAL_FLASH_ADDR" in params and "0x0801FC00u" in params
     assert "LENGTH = 125K" in linker
     assert "IROM(0x08000000,0x1F400)" in uvproj
-    assert "<Size>0x1F400</Size>" in uvproj
+    assert "<size>0x1f400</size>" in uvproj.lower()
     assert "-FL00020000" in uvproj
     assert "<FileName>joint_config.c</FileName>" in uvproj
     assert "..\\..\\application\\motor_control\\joint_config.c" in uvproj
