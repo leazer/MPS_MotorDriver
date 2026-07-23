@@ -1199,18 +1199,8 @@ static void enc_status(int argc, char **argv)
 {
     encoder_snapshot_t snap;
     encoder_tracker_snapshot_t trk;
-    bool motor_active;
 
     (void)argc; (void)argv;
-    motor_active = motor_control_isr_open_loop_active() ||
-                   motor_control_isr_align_active() ||
-                   motor_control_isr_current_active() ||
-                   motor_control_isr_speed_active();
-
-    if (!motor_active) {
-        (void)encoder_service_poll_once_thread();
-    }
-
     if (!encoder_service_get_snapshot(&snap)) {
         rt_kprintf("encoder snapshot invalid\n");
         return;
