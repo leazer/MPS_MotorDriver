@@ -7,6 +7,7 @@
 
 #include "fault_manager.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 
 #define RX_CAPACITY 32u
 #define TX_CAPACITY 32u
@@ -109,7 +110,8 @@ static void fake_fault_clear_can(void)
 {
     ++s_fault_clear_calls;
     if (!s_fault_clear_blocked) {
-        s_faults &= ~(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);
+        s_faults &= ~(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS |
+                      FAULT_POSITION_TRACKING);
     }
 }
 
@@ -678,6 +680,13 @@ static void test_force_stop_and_fault_authority(void)
     can_motion_service_tick_1ms();
     assert(snapshot().state == CAN_NODE_STATE_FAULT);
 
+    s_faults = FAULT_POSITION_TRACKING;
+    enqueue(broadcast(CAN_OPCODE_CLEAR_FAULT, 0u, 0u));
+    can_motion_service_tick_1ms();
+    assert(snapshot().state == CAN_NODE_STATE_READY);
+    assert((snapshot().fault_bits & FAULT_POSITION_TRACKING) == 0u);
+
+    can_motion_service_force_stop();
     s_faults = FAULT_OVERCURRENT;
     enqueue(broadcast(CAN_OPCODE_CLEAR_FAULT, 0u, 0u));
     can_motion_service_tick_1ms();
@@ -866,6 +875,7 @@ static void test_diagnostic_reset_preserves_motion_state(void)
 
 int main(void)
 {
+    motor_tuning_init();
     test_frozen_wire_state_values();
     test_configuration_and_discover();
     test_arm_preload_sync_and_idempotence();

@@ -22,6 +22,7 @@
 #include "motor_calibration.h"
 #include "fault_manager.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include "board_motor_pins.h"
 #include "current_loop.h"
 #include "speed_loop.h"
@@ -145,12 +146,12 @@ static volatile uint8_t  s_dbg_cal_progress;
 
 /* Stage 5: 电流环快照 */
 static volatile uint32_t s_dbg_cur_hits;
-static volatile int32_t  s_dbg_id_ma;
-static volatile int32_t  s_dbg_iq_ma;
-static volatile int32_t  s_dbg_id_avg_ma;
-static volatile int32_t  s_dbg_iq_avg_ma;
-static int32_t           s_cur_id_sum_ma;
-static int32_t           s_cur_iq_sum_ma;
+static volatile int32_t s_dbg_id_ma;
+static volatile int32_t s_dbg_iq_ma;
+static volatile int32_t s_dbg_id_avg_ma;
+static volatile int32_t s_dbg_iq_avg_ma;
+static int32_t          s_cur_id_sum_ma;
+static int32_t          s_cur_iq_sum_ma;
 static uint16_t          s_cur_avg_count;
 
 /* Stage 6: 速度环快照 */
@@ -180,8 +181,10 @@ static void current_debug_accumulate_average(int32_t id_ma, int32_t iq_ma)
     s_cur_iq_sum_ma += iq_ma;
     s_cur_avg_count++;
     if (s_cur_avg_count >= CURRENT_AVG_WINDOW_TICKS) {
-        s_dbg_id_avg_ma = s_cur_id_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
-        s_dbg_iq_avg_ma = s_cur_iq_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
+        s_dbg_id_avg_ma =
+            s_cur_id_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
+        s_dbg_iq_avg_ma =
+            s_cur_iq_sum_ma / (int32_t)CURRENT_AVG_WINDOW_TICKS;
         s_cur_id_sum_ma = 0;
         s_cur_iq_sum_ma = 0;
         s_cur_avg_count = 0u;
@@ -202,6 +205,10 @@ static void current_sampling_runtime_reset(void)
     s_held_vq_ref = 0.0f;
     current_debug_clear_phase_voltage();
     s_imbal_consec = 0u;
+    g_motor_loop_debug.protection.overcurrent_consecutive = 0u;
+    g_motor_loop_debug.protection.invalid_consecutive = 0u;
+    g_motor_loop_debug.protection.imbalance_consecutive = 0u;
+    g_motor_loop_debug.protection.overcurrent_active = 0u;
 }
 
 static void current_debug_publish_phase_voltage(float v_alpha, float v_beta)
@@ -287,6 +294,7 @@ void motor_control_isr_tick(void)
     float    ib;
     float    ic;
     float    i_sum;
+    float    max_phase_current;
     float    gain;
     current_sample_plan_t plan;
     current_reconstruction_result_t sample;
@@ -312,20 +320,32 @@ void motor_control_isr_tick(void)
 
     motor_pwm_at32m412_get_sample_plan(&plan);
     current_reconstruction_run(&plan, ia, ib, ic,
-                               CURRENT_SAMPLE_BLANKING_TICKS, &sample);
+                               g_motor_tuning.protection.sample_blanking_ticks,
+                               &sample);
+    max_phase_current = fabsf(sample.ia);
+    if (fabsf(sample.ib) > max_phase_current) {
+        max_phase_current = fabsf(sample.ib);
+    }
+    if (fabsf(sample.ic) > max_phase_current) {
+        max_phase_current = fabsf(sample.ic);
+    }
+    i_sum = sample.raw_ia + sample.raw_ib + sample.raw_ic;
 
     /* ===== Stage 3: 电流保护 (过流 + 不平衡, spec §4.3.5) ===== */
     phase_overcurrent = sample.frame_valid &&
-        (fabsf(sample.ia) >= IQ_OVERCURRENT_A ||
-         fabsf(sample.ib) >= IQ_OVERCURRENT_A ||
-         fabsf(sample.ic) >= IQ_OVERCURRENT_A);
+        (fabsf(sample.ia) >=
+             g_motor_tuning.protection.phase_overcurrent_A ||
+         fabsf(sample.ib) >=
+             g_motor_tuning.protection.phase_overcurrent_A ||
+         fabsf(sample.ic) >=
+             g_motor_tuning.protection.phase_overcurrent_A);
 
     if (mc->state == MOTOR_CONTROL_STATE_ENABLED) {
         sample_action = current_sample_guard_step(&s_sample_guard,
                                                   sample.frame_valid,
                                                   phase_overcurrent,
-                                                  OVERCURRENT_DEBOUNCE_TICKS,
-                                                  CURRENT_SAMPLE_INVALID_LIMIT);
+                                                  g_motor_tuning.protection.overcurrent_debounce_ticks,
+                                                  g_motor_tuning.protection.sample_invalid_limit);
         if (phase_overcurrent) s_dbg_oc_hits++;
         if (sample_action == CURRENT_SAMPLE_ACTION_TRIP_OVERCURRENT) {
             current_fault_latch(mc, FAULT_OVERCURRENT);
@@ -342,11 +362,12 @@ void motor_control_isr_tick(void)
      * 电流环启动瞬态 PWM 切换时单拍 ADC 毛刺可致 i_sum 瞬超阈值). */
     if (mc->state == MOTOR_CONTROL_STATE_ENABLED &&
         sample.valid_mask == CURRENT_PHASE_ALL_MASK) {
-        i_sum = sample.raw_ia + sample.raw_ib + sample.raw_ic;
-        if (fabsf(i_sum) > IMBALANCE_THRESHOLD_A) {
+        if (fabsf(i_sum) >
+            g_motor_tuning.protection.imbalance_threshold_A) {
             s_dbg_imbal_hits++;
             s_imbal_consec++;
-            if (s_imbal_consec >= IMBALANCE_DEBOUNCE_TICKS) {
+            if (s_imbal_consec >=
+                g_motor_tuning.protection.imbalance_debounce_ticks) {
                 current_fault_latch(mc, FAULT_OVERCURRENT);
             }
         } else {
@@ -355,6 +376,22 @@ void motor_control_isr_tick(void)
     } else {
         s_imbal_consec = 0u;
     }
+
+    g_motor_loop_debug.protection.max_phase_current_A =
+        max_phase_current;
+    g_motor_loop_debug.protection.imbalance_A = i_sum;
+    g_motor_loop_debug.protection.overcurrent_consecutive =
+        s_sample_guard.overcurrent_consecutive;
+    g_motor_loop_debug.protection.invalid_consecutive =
+        s_sample_guard.invalid_consecutive;
+    g_motor_loop_debug.protection.imbalance_consecutive =
+        s_imbal_consec;
+    g_motor_loop_debug.protection.invalid_total =
+        s_sample_guard.invalid_total;
+    g_motor_loop_debug.protection.frame_valid =
+        sample.frame_valid ? 1u : 0u;
+    g_motor_loop_debug.protection.overcurrent_active =
+        phase_overcurrent ? 1u : 0u;
 
     if (mc->state == MOTOR_CONTROL_STATE_ENABLED && !sample.frame_valid &&
         ((mc->mode == MOTOR_CONTROL_MODE_CURRENT && s_cur_active) ||
@@ -622,10 +659,11 @@ void motor_control_isr_tick(void)
             if (sample.frame_valid) {
                 iq_ref = speed_loop_run(encoder_tracker_get_speed_rad_s()) +
                     position_loop_get_iq_feedforward_A();
-                if (iq_ref > SPEED_IQ_LIMIT_A) {
-                    iq_ref = SPEED_IQ_LIMIT_A;
-                } else if (iq_ref < -SPEED_IQ_LIMIT_A) {
-                    iq_ref = -SPEED_IQ_LIMIT_A;
+                if (iq_ref > g_motor_tuning.speed.output_limit_A) {
+                    iq_ref = g_motor_tuning.speed.output_limit_A;
+                } else if (iq_ref <
+                           -g_motor_tuning.speed.output_limit_A) {
+                    iq_ref = -g_motor_tuning.speed.output_limit_A;
                 }
                 current_loop_set_targets(0.0f, iq_ref);
 

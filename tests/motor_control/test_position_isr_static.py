@@ -43,7 +43,7 @@ def test_position_branch_reuses_verified_speed_and_current_chain():
         "speed_loop_set_target_rad_s",
         "speed_loop_run",
         "position_loop_get_iq_feedforward_A",
-        "SPEED_IQ_LIMIT_A",
+        "g_motor_tuning.speed.output_limit_A",
         "current_loop_set_targets",
         "current_loop_run",
         "foc_ipark",

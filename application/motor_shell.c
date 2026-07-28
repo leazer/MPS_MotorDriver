@@ -161,9 +161,11 @@ static void pwm_en(int argc, char **argv)
     on = atoi(argv[1]);
     if (on) {
         motor_pwm_at32m412_enable_output();
+        motor_pwm_at32m412_enable_ovf_irq();
         rt_kprintf("MP6540H EN=HIGH (enabled)\n");
     } else {
         motor_pwm_at32m412_disable_output();
+        motor_pwm_at32m412_disable_ovf_irq();
         rt_kprintf("MP6540H EN=LOW (disabled)\n");
     }
 }

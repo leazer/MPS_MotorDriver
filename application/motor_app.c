@@ -17,6 +17,7 @@
 #include "encoder_service.h"
 #include "encoder_tracker.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include "can_motion_timer_at32m412.h"
 #include "encoder_acq_timer_at32m412.h"
 
@@ -105,7 +106,8 @@ static void motor_app_can_fault_set(uint32_t bits)
 
 static void motor_app_can_fault_clear(void)
 {
-    fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);
+    fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS |
+                             FAULT_POSITION_TRACKING);
 }
 
 static const can_motion_ops_t s_can_motion_ops = {
@@ -152,6 +154,7 @@ void motor_app_init(void)
     /* 应用层模块 */
     fault_manager_init();
     motor_control_init(&s_motor_control);  /* 已有状态机 */
+    motor_tuning_init();                   /* LKS Scope RAM 在线调参默认值 */
     motor_calibration_load();              /* 开机加载标定 (Stage 4b) */
     current_loop_init();                   /* Stage 5: 电流环 PID 参数初始化 */
     motor_control_isr_sampling_init();     /* 电流重构保护与诊断初始化 */

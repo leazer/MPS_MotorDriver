@@ -47,6 +47,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user sources here
     ${CMAKE_SOURCE_DIR}/application/motor_control/motor_control.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/foc_core.c
+    ${CMAKE_SOURCE_DIR}/application/motor_control/motor_tuning.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/current_loop.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/current_reconstruction.c
     ${CMAKE_SOURCE_DIR}/application/motor_control/speed_loop.c

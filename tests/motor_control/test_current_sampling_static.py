@@ -129,6 +129,10 @@ def test_isr_uses_reconstruction_before_clarke_and_freezes_invalid_frames():
     assert "s_dbg_pi_freeze_count" in source
     assert "current_fault_latch(mc, FAULT_CURRENT_SAMPLE)" in source
     assert "sample.valid_mask == CURRENT_PHASE_ALL_MASK" in source
+    assert "g_motor_tuning.protection.sample_blanking_ticks" in source
+    assert "g_motor_tuning.protection.imbalance_threshold_A" in source
+    assert "g_motor_tuning.protection.imbalance_debounce_ticks" in source
+    assert "g_motor_loop_debug.protection" in source
 
 
 def test_sampling_debug_snapshot_uses_complete_sequence_protocol():

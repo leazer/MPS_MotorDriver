@@ -79,7 +79,7 @@ def assert_atomic_joint_transform_contract(source):
         "s_joint_anchor_mdeg = joint_mdeg;",
         "s_joint_direction = joint_direction;",
         "s_origin_valid = 1u;",
-        "s_snapshot.origin_valid = 1u;",
+        "s_position_snapshot.origin_valid = 1u;",
         "position_loop_origin_unlock(primask);",
     ]
     for token in setter_order:
@@ -89,7 +89,7 @@ def assert_atomic_joint_transform_contract(source):
 
     assert "primask = position_loop_origin_lock();" in init
     assert "s_origin_valid = 0u;" in init
-    assert "s_snapshot.origin_valid = 0u;" in init
+    assert "s_position_snapshot.origin_valid = 0u;" in init
     assert "position_loop_origin_unlock(primask);" in init
     assert init.index("primask = position_loop_origin_lock();") < init.index(
         "s_origin_valid = 0u;"
@@ -124,9 +124,13 @@ def test_position_loop_has_coherent_publish_and_bounded_extrapolation():
     assert "s_publish_generation" in source
     assert "generation_before" in source
     assert "generation_after" in source
-    assert "POSITION_EXTRAPOLATION_LIMIT_MS" in source
-    assert "POSITION_MAX_ERROR_MDEG" in source
-    assert "POSITION_MAX_VELOCITY_MDEG_S" in source
+    assert "g_motor_tuning.position.extrapolation_limit_ms" in source
+    assert "g_motor_tuning.position.max_error_mdeg" in source
+    assert "g_motor_tuning.position.max_velocity_mdeg_s" in source
+    assert "g_motor_tuning.position.speed_limit_elec_rad_s" in source
+    assert "g_motor_tuning.position.iq_friction_A" in source
+    assert "g_motor_tuning.position.iq_friction_moving_A" in source
+    assert "g_motor_tuning.position.iq_friction_error_mdeg" in source
     assert "POSITION_SPEED_LIMIT_ELEC_RAD_S" in params
     assert "POSITION_LOOP_DIV" in params
     assert "POSITION_IQ_FRICTION_A" in params

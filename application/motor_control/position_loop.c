@@ -1,5 +1,6 @@
 #include "position_loop.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include <limits.h>
 #include <string.h>
 
@@ -60,7 +61,7 @@ static volatile int8_t s_joint_direction;
 static volatile uint8_t s_origin_valid;
 
 static position_setpoint_t s_active_setpoint;
-static position_loop_snapshot_t s_snapshot;
+static position_loop_snapshot_t s_position_snapshot;
 static volatile uint32_t s_snapshot_generation;
 static int32_t s_frozen_reference_mdeg;
 static float s_speed_ref_elec_rad_s;
@@ -110,7 +111,7 @@ static uint32_t position_snapshot_begin(void)
 
 static void position_snapshot_end(uint32_t generation)
 {
-    s_snapshot.origin_valid = s_origin_valid;
+    s_position_snapshot.origin_valid = s_origin_valid;
     s_snapshot_generation = generation + 2u;
 }
 
@@ -147,7 +148,7 @@ void position_loop_init(void)
     s_joint_anchor_mdeg = 0;
     s_joint_direction = 1;
     s_origin_valid = 0u;
-    s_snapshot.origin_valid = 0u;
+    s_position_snapshot.origin_valid = 0u;
     position_loop_origin_unlock(primask);
 }
 
@@ -165,13 +166,15 @@ void position_loop_reset(void)
     s_last_submitted_sequence = 0u;
     s_has_submitted_sequence = 0u;
     memset(&s_active_setpoint, 0, sizeof(s_active_setpoint));
-    memset(&s_snapshot, 0, sizeof(s_snapshot));
+    memset(&s_position_snapshot, 0, sizeof(s_position_snapshot));
     s_snapshot_generation = 0u;
     s_frozen_reference_mdeg = 0;
     s_speed_ref_elec_rad_s = 0.0f;
     s_iq_feedforward_A = 0.0f;
     s_divider = 0u;
-    s_snapshot.origin_valid = origin_valid;
+    s_position_snapshot.origin_valid = origin_valid;
+    memset((void *)&g_motor_loop_debug.position, 0,
+           sizeof(g_motor_loop_debug.position));
 }
 
 bool position_loop_set_joint_origin(int32_t sensor_mdeg, int32_t joint_mdeg,
@@ -189,7 +192,7 @@ bool position_loop_set_joint_origin(int32_t sensor_mdeg, int32_t joint_mdeg,
     s_joint_anchor_mdeg = joint_mdeg;
     s_joint_direction = joint_direction;
     s_origin_valid = 1u;
-    s_snapshot.origin_valid = 1u;
+    s_position_snapshot.origin_valid = 1u;
     position_loop_origin_unlock(primask);
     return true;
 }
@@ -235,8 +238,8 @@ bool position_loop_first_target_safe(int32_t sensor_mdeg,
     }
     current_joint_mdeg = position_loop_sensor_to_joint_mdeg(sensor_mdeg);
     error_mdeg = (int64_t)target_joint_mdeg - (int64_t)current_joint_mdeg;
-    return error_mdeg >= -(int64_t)POSITION_MAX_ERROR_MDEG &&
-           error_mdeg <= (int64_t)POSITION_MAX_ERROR_MDEG;
+    return error_mdeg >= -(int64_t)g_motor_tuning.position.max_error_mdeg &&
+           error_mdeg <= (int64_t)g_motor_tuning.position.max_error_mdeg;
 }
 
 bool position_loop_submit(const position_setpoint_t *setpoint)
@@ -246,8 +249,10 @@ bool position_loop_submit(const position_setpoint_t *setpoint)
     if (setpoint == 0 || s_origin_valid == 0u) {
         return false;
     }
-    if (setpoint->velocity_mdeg_s > POSITION_MAX_VELOCITY_MDEG_S ||
-        setpoint->velocity_mdeg_s < -POSITION_MAX_VELOCITY_MDEG_S) {
+    if (setpoint->velocity_mdeg_s >
+            g_motor_tuning.position.max_velocity_mdeg_s ||
+        setpoint->velocity_mdeg_s <
+            -g_motor_tuning.position.max_velocity_mdeg_s) {
         return false;
     }
     if (s_has_submitted_sequence != 0u) {
@@ -285,7 +290,9 @@ float position_loop_run(int32_t sensor_mdeg)
     int64_t reference_i64;
     int64_t error_i64;
     int32_t velocity_ff_mdeg_s;
+    float proportional_velocity_mdeg_s;
     float speed_mech_rad_s;
+    float speed_unlimited_elec_rad_s;
     uint32_t snapshot_generation;
 
     s_divider++;
@@ -297,79 +304,112 @@ float position_loop_run(int32_t sensor_mdeg)
 
     if (position_consume_setpoint(&received)) {
         s_active_setpoint = received;
-        s_snapshot.active = 1u;
-        s_snapshot.stream_timeout = 0u;
-        s_snapshot.tracking_fault = 0u;
-        s_snapshot.age_ms = 0u;
+        s_position_snapshot.active = 1u;
+        s_position_snapshot.stream_timeout = 0u;
+        s_position_snapshot.tracking_fault = 0u;
+        s_position_snapshot.age_ms = 0u;
         s_frozen_reference_mdeg = received.position_mdeg;
-    } else if (s_snapshot.active != 0u && s_snapshot.age_ms < UINT16_MAX) {
-        s_snapshot.age_ms++;
+    } else if (s_position_snapshot.active != 0u &&
+               s_position_snapshot.age_ms < UINT16_MAX) {
+        s_position_snapshot.age_ms++;
     }
 
-    if (s_snapshot.active == 0u) {
+    if (s_position_snapshot.active == 0u) {
         s_speed_ref_elec_rad_s = 0.0f;
         s_iq_feedforward_A = 0.0f;
+        g_motor_loop_debug.position.speed_unlimited_elec_rad_s = 0.0f;
+        g_motor_loop_debug.position.speed_output_elec_rad_s = 0.0f;
+        g_motor_loop_debug.position.iq_feedforward_A = 0.0f;
         position_snapshot_end(snapshot_generation);
         return 0.0f;
     }
 
-    extrapolation_ms = s_snapshot.age_ms;
-    if (extrapolation_ms > POSITION_EXTRAPOLATION_LIMIT_MS) {
-        extrapolation_ms = POSITION_EXTRAPOLATION_LIMIT_MS;
+    extrapolation_ms = s_position_snapshot.age_ms;
+    if (extrapolation_ms >
+        g_motor_tuning.position.extrapolation_limit_ms) {
+        extrapolation_ms =
+            g_motor_tuning.position.extrapolation_limit_ms;
     }
-    if (s_snapshot.stream_timeout == 0u) {
+    if (s_position_snapshot.stream_timeout == 0u) {
         reference_i64 = (int64_t)s_active_setpoint.position_mdeg +
             ((int64_t)s_active_setpoint.velocity_mdeg_s *
              (int64_t)extrapolation_ms) / 1000LL;
         s_frozen_reference_mdeg = position_saturate_i64(reference_i64);
     }
     if (s_active_setpoint.lease_ms != 0u &&
-        s_snapshot.age_ms >= s_active_setpoint.lease_ms) {
-        s_snapshot.stream_timeout = 1u;
+        s_position_snapshot.age_ms >= s_active_setpoint.lease_ms) {
+        s_position_snapshot.stream_timeout = 1u;
     }
 
-    velocity_ff_mdeg_s = s_snapshot.stream_timeout != 0u ?
+    velocity_ff_mdeg_s = s_position_snapshot.stream_timeout != 0u ?
         0 : s_active_setpoint.velocity_mdeg_s;
     measured_mdeg = position_loop_sensor_to_joint_mdeg(sensor_mdeg);
     error_i64 = (int64_t)s_frozen_reference_mdeg - (int64_t)measured_mdeg;
 
-    s_snapshot.target_position_mdeg = s_active_setpoint.position_mdeg;
-    s_snapshot.velocity_ff_mdeg_s = velocity_ff_mdeg_s;
-    s_snapshot.reference_position_mdeg = s_frozen_reference_mdeg;
-    s_snapshot.measured_position_mdeg = measured_mdeg;
-    s_snapshot.error_mdeg = position_saturate_i64(error_i64);
-    s_snapshot.sequence = s_active_setpoint.sequence;
+    s_position_snapshot.target_position_mdeg =
+        s_active_setpoint.position_mdeg;
+    s_position_snapshot.velocity_ff_mdeg_s = velocity_ff_mdeg_s;
+    s_position_snapshot.reference_position_mdeg =
+        s_frozen_reference_mdeg;
+    s_position_snapshot.measured_position_mdeg = measured_mdeg;
+    s_position_snapshot.error_mdeg = position_saturate_i64(error_i64);
+    s_position_snapshot.sequence = s_active_setpoint.sequence;
+    proportional_velocity_mdeg_s =
+        g_motor_tuning.position.kp *
+        (float)s_position_snapshot.error_mdeg;
+    speed_mech_rad_s =
+        ((float)velocity_ff_mdeg_s + proportional_velocity_mdeg_s) *
+        POSITION_MDEG_TO_RAD;
+    speed_unlimited_elec_rad_s =
+        speed_mech_rad_s * (float)s_joint_direction *
+        (float)MOTOR_POLE_PAIRS;
 
-    if (error_i64 > POSITION_MAX_ERROR_MDEG ||
-        error_i64 < -POSITION_MAX_ERROR_MDEG) {
-        s_snapshot.tracking_fault = 1u;
+    if (error_i64 > g_motor_tuning.position.max_error_mdeg ||
+        error_i64 < -g_motor_tuning.position.max_error_mdeg) {
+        s_position_snapshot.tracking_fault = 1u;
         s_speed_ref_elec_rad_s = 0.0f;
         s_iq_feedforward_A = 0.0f;
     } else {
-        speed_mech_rad_s =
-            ((float)velocity_ff_mdeg_s +
-             PID_POSITION_KP * (float)s_snapshot.error_mdeg) *
-            POSITION_MDEG_TO_RAD;
         s_speed_ref_elec_rad_s = position_clamp(
-            speed_mech_rad_s * (float)s_joint_direction *
-                (float)MOTOR_POLE_PAIRS,
-            POSITION_SPEED_LIMIT_ELEC_RAD_S);
+            speed_unlimited_elec_rad_s,
+            g_motor_tuning.position.speed_limit_elec_rad_s);
         s_iq_feedforward_A = 0.0f;
         if (s_speed_ref_elec_rad_s != 0.0f) {
             if (velocity_ff_mdeg_s != 0) {
                 s_iq_feedforward_A = s_speed_ref_elec_rad_s > 0.0f ?
-                    POSITION_IQ_FRICTION_MOVING_A :
-                    -POSITION_IQ_FRICTION_MOVING_A;
+                    g_motor_tuning.position.iq_friction_moving_A :
+                    -g_motor_tuning.position.iq_friction_moving_A;
             } else if (
-                s_snapshot.error_mdeg > POSITION_IQ_FRICTION_ERROR_MDEG ||
-                s_snapshot.error_mdeg < -POSITION_IQ_FRICTION_ERROR_MDEG) {
+                s_position_snapshot.error_mdeg >
+                    g_motor_tuning.position.iq_friction_error_mdeg ||
+                s_position_snapshot.error_mdeg <
+                    -g_motor_tuning.position.iq_friction_error_mdeg) {
                 s_iq_feedforward_A = s_speed_ref_elec_rad_s > 0.0f ?
-                    POSITION_IQ_FRICTION_A : -POSITION_IQ_FRICTION_A;
+                    g_motor_tuning.position.iq_friction_A :
+                    -g_motor_tuning.position.iq_friction_A;
             }
         }
     }
-    s_snapshot.speed_ref_elec_mrad_s =
+    s_position_snapshot.speed_ref_elec_mrad_s =
         (int32_t)(s_speed_ref_elec_rad_s * 1000.0f);
+    g_motor_loop_debug.position.target_position_mdeg =
+        s_position_snapshot.target_position_mdeg;
+    g_motor_loop_debug.position.reference_position_mdeg =
+        s_position_snapshot.reference_position_mdeg;
+    g_motor_loop_debug.position.measured_position_mdeg =
+        s_position_snapshot.measured_position_mdeg;
+    g_motor_loop_debug.position.error_mdeg =
+        s_position_snapshot.error_mdeg;
+    g_motor_loop_debug.position.velocity_ff_mdeg_s =
+        s_position_snapshot.velocity_ff_mdeg_s;
+    g_motor_loop_debug.position.proportional_velocity_mdeg_s =
+        proportional_velocity_mdeg_s;
+    g_motor_loop_debug.position.speed_unlimited_elec_rad_s =
+        speed_unlimited_elec_rad_s;
+    g_motor_loop_debug.position.speed_output_elec_rad_s =
+        s_speed_ref_elec_rad_s;
+    g_motor_loop_debug.position.iq_feedforward_A =
+        s_iq_feedforward_A;
     position_snapshot_end(snapshot_generation);
     return s_speed_ref_elec_rad_s;
 }
@@ -392,7 +432,7 @@ bool position_loop_get_snapshot(position_loop_snapshot_t *out)
         if ((generation_before & 1u) != 0u) {
             continue;
         }
-        *out = s_snapshot;
+        *out = s_position_snapshot;
         generation_after = s_snapshot_generation;
         if (generation_before == generation_after &&
             (generation_after & 1u) == 0u) {

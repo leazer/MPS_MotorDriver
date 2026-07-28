@@ -9,6 +9,7 @@ ISR_C = ROOT / "application" / "motor_control" / "motor_control_isr.c"
 SHELL_C = ROOT / "application" / "motor_shell.c"
 APP_C = ROOT / "application" / "motor_app.c"
 PARAMS_H = ROOT / "application" / "motor_control" / "motor_params.h"
+TUNING_C = ROOT / "application" / "motor_control" / "motor_tuning.c"
 
 
 def read(path):
@@ -75,27 +76,31 @@ def test_speed_loop_initialized_from_motor_app():
     assert "speed_loop_init();" in app
 
 
-def test_speed_mode_has_independent_half_amp_limit():
+def test_speed_mode_has_independent_live_tuning_limit():
     params = read(PARAMS_H)
+    tuning = read(TUNING_C)
     lines = [line.split() for line in params.splitlines() if line.startswith("#define")]
-    assert ["#define", "SPEED_IQ_LIMIT_A", "0.5f"] in lines
+    assert ["#define", "SPEED_IQ_LIMIT_A", "1.2f"] in lines
     assert ["#define", "PID_SPEED_INTEGRAL_LIMIT", "SPEED_IQ_LIMIT_A"] in lines
     assert ["#define", "PID_SPEED_OUT_LIMIT", "SPEED_IQ_LIMIT_A"] in lines
+    assert "g_motor_tuning.speed.integral_limit_A = PID_SPEED_INTEGRAL_LIMIT" in tuning
+    assert "g_motor_tuning.speed.output_limit_A = PID_SPEED_OUT_LIMIT" in tuning
 
 
-def test_speed_tuning_constants_match_bench_candidate_twenty_one():
+def test_speed_tuning_constants_match_current_defaults():
     params = read(PARAMS_H)
     speed = read(SPEED_C)
+    tuning = read(TUNING_C)
     lines = [line.split() for line in params.splitlines() if line.startswith("#define")]
-    assert ["#define", "PID_SPEED_KP", "0.01f"] in lines
+    assert ["#define", "PID_SPEED_KP", "0.04f"] in lines
     assert ["#define", "PID_SPEED_KP_BRAKE", "0.04f"] in lines
-    assert ["#define", "PID_SPEED_KI", "0.01f"] in lines
+    assert ["#define", "PID_SPEED_KI", "0.03f"] in lines
     assert ["#define", "SPEED_IQ_FRICTION_A", "0.02f"] in lines
-    assert "#define SPEED_RAMP_RAD_S2       50.0f" in speed
-    assert "feedforward = SPEED_IQ_FRICTION_A" in speed
-    assert "feedforward = -SPEED_IQ_FRICTION_A" in speed
+    assert "g_motor_tuning.speed.ramp_rad_s2 = 50.0f" in tuning
+    assert "feedforward = g_motor_tuning.speed.friction_A" in speed
+    assert "feedforward = -g_motor_tuning.speed.friction_A" in speed
     assert "kp * error + s_pid.integral + feedforward" in speed
-    assert "kp = PID_SPEED_KP_BRAKE" in speed
+    assert "kp = g_motor_tuning.speed.kp_brake" in speed
     assert "s_command_rad_s * error" in speed
     assert "out * s_command_rad_s" in speed
     assert "out = 0.0f" in speed
@@ -107,6 +112,6 @@ if __name__ == "__main__":
     test_shell_exposes_mc_speed_and_debug_fields()
     test_compact_speed_status_includes_encoder_position_for_ripple_diagnosis()
     test_speed_loop_initialized_from_motor_app()
-    test_speed_mode_has_independent_half_amp_limit()
-    test_speed_tuning_constants_match_bench_candidate_twenty_one()
+    test_speed_mode_has_independent_live_tuning_limit()
+    test_speed_tuning_constants_match_current_defaults()
     print("speed loop static tests passed")

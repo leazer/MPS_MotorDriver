@@ -251,7 +251,7 @@
               <IROM>
                 <Type>1</Type>
                 <StartAddress>0x8000000</StartAddress>
-                <Size>0x1F400</Size>
+                <Size>0x1f400</Size>
               </IROM>
               <XRAM>
                 <Type>0</Type>
@@ -422,6 +422,11 @@
               <FileName>foc_core.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\..\application\motor_control\foc_core.c</FilePath>
+            </File>
+            <File>
+              <FileName>motor_tuning.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\..\application\motor_control\motor_tuning.c</FilePath>
             </File>
             <File>
               <FileName>current_loop.c</FileName>

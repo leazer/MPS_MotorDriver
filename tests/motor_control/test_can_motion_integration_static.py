@@ -234,8 +234,9 @@ def assert_app_contract(app):
     assert "fault_manager_set_bits(bits);" in set_fault
     assert "__disable_irq" not in set_fault
     clear_fault = function_body(app, "static void motor_app_can_fault_clear(void)")
-    assert "fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS);" in normalized(
-        clear_fault
+    assert (
+        "fault_manager_clear_bits(FAULT_CAN_TIMEOUT | FAULT_CAN_BUS | "
+        "FAULT_POSITION_TRACKING);" in normalized(clear_fault)
     )
     assert "__disable_irq" not in clear_fault
     assert "fault_manager_clear_all" not in clear_fault

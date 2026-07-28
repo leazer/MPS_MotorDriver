@@ -6,6 +6,7 @@
 
 #include "fault_manager.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 
 #if defined(__CC_ARM) || defined(__arm__) || defined(__thumb__)
 #include "at32m412_416.h"
@@ -182,18 +183,24 @@ static bool trajectory_equal(const can_trajectory_t *first,
 
 static bool trajectory_in_range(const can_trajectory_t *point)
 {
-    return (point->position_mdeg >= -POSITION_COMMAND_LIMIT_MDEG) &&
-           (point->position_mdeg <= POSITION_COMMAND_LIMIT_MDEG) &&
-           (point->velocity_mdeg_s >= -POSITION_MAX_VELOCITY_MDEG_S) &&
-           (point->velocity_mdeg_s <= POSITION_MAX_VELOCITY_MDEG_S);
+    return (point->position_mdeg >=
+                -g_motor_tuning.position.command_limit_mdeg) &&
+           (point->position_mdeg <=
+                g_motor_tuning.position.command_limit_mdeg) &&
+           (point->velocity_mdeg_s >=
+                -g_motor_tuning.position.max_velocity_mdeg_s) &&
+           (point->velocity_mdeg_s <=
+                g_motor_tuning.position.max_velocity_mdeg_s);
 }
 
 static bool first_target_safe(int32_t target_mdeg, int32_t actual_mdeg)
 {
     int64_t difference = (int64_t)target_mdeg - (int64_t)actual_mdeg;
 
-    return (difference >= -(int64_t)POSITION_MAX_ERROR_MDEG) &&
-           (difference <= (int64_t)POSITION_MAX_ERROR_MDEG);
+    return (difference >=
+                -(int64_t)g_motor_tuning.position.max_error_mdeg) &&
+           (difference <=
+                (int64_t)g_motor_tuning.position.max_error_mdeg);
 }
 
 static void accept_pending(const can_trajectory_t *point)

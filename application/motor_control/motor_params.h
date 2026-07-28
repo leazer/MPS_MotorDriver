@@ -93,29 +93,29 @@ extern "C" {
 
 /* ===== PID 参数初值 (spec §4.4) ===== */
 /* 电流环 */
-#define PID_ID_KP                       0.5f
-#define PID_ID_KI                       100.0f
-#define PID_IQ_KP                       0.5f
-#define PID_IQ_KI                       100.0f
-#define PID_CURRENT_INTEGRAL_LIMIT      2.0f   /* 台架保守限幅: 避免低电流调试时进入占空比饱和区 */
-#define PID_CURRENT_OUT_LIMIT           2.0f   /* 12V 母线下先限制到 ±2V, 待采样/零点稳定后再上调 */
+#define PID_ID_KP                       1.f
+#define PID_ID_KI                       150.0f
+#define PID_IQ_KP                       1.f
+#define PID_IQ_KI                       150.0f
+#define PID_CURRENT_INTEGRAL_LIMIT      6.0f   /* 12V 母线下限制到约半母线电压 */
+#define PID_CURRENT_OUT_LIMIT           6.0f   /* D/Q 轴输出电压上限 */
 #define IQ_MAX_A                        1.5f          /* 电流环目标上限, < 过流 2.0A 留 0.5A 余量 */
 #define IQ_MAX_MA                       1500          /* mA, shell 层用 */
 #define CURRENT_RAMP_DEFAULT_RPM        300.0f        /* ramp 模式默认角速度 (电角度 rpm), 调试用 */
 
 /* 速度环 */
-#define PID_SPEED_KP                    0.01f
+#define PID_SPEED_KP                    0.04f
 #define PID_SPEED_KP_BRAKE              0.04f
-#define PID_SPEED_KI                    0.01f
+#define PID_SPEED_KI                    0.03f
 #define SPEED_IQ_FRICTION_A             0.02f
-#define SPEED_IQ_LIMIT_A                0.5f
+#define SPEED_IQ_LIMIT_A                1.2f
 #define PID_SPEED_INTEGRAL_LIMIT        SPEED_IQ_LIMIT_A
 #define PID_SPEED_OUT_LIMIT             SPEED_IQ_LIMIT_A
 #define RPM_MAX                         3000
 
 /* 位置环 */
 #define PID_POSITION_KP                 7.5f
-#define POSITION_SPEED_LIMIT_RPM_ELEC   200.0f
+#define POSITION_SPEED_LIMIT_RPM_ELEC   3000.0f
 #define POSITION_SPEED_LIMIT_ELEC_RAD_S (POSITION_SPEED_LIMIT_RPM_ELEC * 6.28318530718f / 60.0f)
 #define POSITION_MAX_VELOCITY_MDEG_S    60000
 #define POSITION_MAX_ERROR_MDEG         30000

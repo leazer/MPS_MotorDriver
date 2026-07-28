@@ -5,6 +5,7 @@
 #include <stdio.h>
 
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include "position_loop.h"
 
 static float run_one_millisecond(int32_t sensor_mdeg)
@@ -216,6 +217,7 @@ static void test_sign_limit_fault_and_reset(void)
 {
     position_setpoint_t setpoint;
     position_loop_snapshot_t snap;
+    float saved_speed_limit;
     float output;
 
     position_loop_init();
@@ -230,10 +232,15 @@ static void test_sign_limit_fault_and_reset(void)
     output = run_one_millisecond(0);
     assert(output < 0.0f);
 
+    saved_speed_limit =
+        g_motor_tuning.position.speed_limit_elec_rad_s;
+    g_motor_tuning.position.speed_limit_elec_rad_s = 10.0f;
     setpoint = point(29999, POSITION_MAX_VELOCITY_MDEG_S, 3u, 0u);
     assert(position_loop_submit(&setpoint));
     output = run_one_millisecond(0);
-    assert(fabsf(output - POSITION_SPEED_LIMIT_ELEC_RAD_S) < 1.0e-5f);
+    assert(fabsf(output - 10.0f) < 1.0e-5f);
+    g_motor_tuning.position.speed_limit_elec_rad_s =
+        saved_speed_limit;
 
     setpoint = point(POSITION_MAX_ERROR_MDEG + 1, 0, 4u, 0u);
     assert(position_loop_submit(&setpoint));
@@ -284,6 +291,7 @@ static void test_position_friction_feedforward_and_deadband(void)
 
 int main(void)
 {
+    motor_tuning_init();
     test_origin_and_first_setpoint();
     test_negative_joint_direction_end_to_end();
     test_extrapolation_limit_and_timeout_hold();
