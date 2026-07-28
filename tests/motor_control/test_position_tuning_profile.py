@@ -19,9 +19,9 @@ def define(text, name):
 def main():
     text = PARAMS.read_text(encoding="utf-8")
     assert define(text, "PID_POSITION_KP") == "7.5f"
-    assert define(text, "PID_SPEED_KP") == "0.01f"
-    assert define(text, "PID_SPEED_KI") == "0.01f"
-    assert define(text, "SPEED_IQ_LIMIT_A") == "0.5f"
+    assert define(text, "PID_SPEED_KP") == "0.04f"
+    assert define(text, "PID_SPEED_KI") == "0.03f"
+    assert define(text, "SPEED_IQ_LIMIT_A") == "1.2f"
     assert define(text, "POSITION_IQ_FRICTION_MOVING_A") == "0.04f"
     print("position tuning profile: PASS")
 
