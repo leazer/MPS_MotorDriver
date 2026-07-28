@@ -6,11 +6,11 @@ ROOT = Path(__file__).resolve().parents[2]
 PARAMS_H = ROOT / "application" / "motor_control" / "motor_params.h"
 
 
-def test_current_loop_uses_conservative_bench_voltage_limit():
+def test_current_loop_uses_half_bus_voltage_limit():
     source = PARAMS_H.read_text(encoding="utf-8")
 
-    assert re.search(r"#define\s+PID_CURRENT_INTEGRAL_LIMIT\s+2\.0f\b", source)
-    assert re.search(r"#define\s+PID_CURRENT_OUT_LIMIT\s+2\.0f\b", source)
+    assert re.search(r"#define\s+PID_CURRENT_INTEGRAL_LIMIT\s+6\.0f\b", source)
+    assert re.search(r"#define\s+PID_CURRENT_OUT_LIMIT\s+6\.0f\b", source)
 
 
 def test_current_debug_reports_window_average():
@@ -44,7 +44,7 @@ def test_pwm_adc_trigger_default_matches_bench_window():
 
 
 if __name__ == "__main__":
-    test_current_loop_uses_conservative_bench_voltage_limit()
+    test_current_loop_uses_half_bus_voltage_limit()
     test_current_debug_reports_window_average()
     test_pwm_adc_trigger_can_be_swept_from_shell()
     test_pwm_adc_trigger_default_matches_bench_window()

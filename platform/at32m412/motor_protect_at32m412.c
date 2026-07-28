@@ -14,13 +14,13 @@ void motor_protect_check_vbus(void)
 {
     float vbus = motor_protect_read_vbus_v();
     if (vbus < VBUS_UNDERVOLTAGE_THRESHOLD_V) {
-        fault_manager_set(FAULT_UNDERVOLTAGE);
+        fault_manager_set_bits(FAULT_UNDERVOLTAGE);
     } else {
-        fault_manager_clear(FAULT_UNDERVOLTAGE);
+        fault_manager_clear_bits(FAULT_UNDERVOLTAGE);
     }
     if (vbus > VBUS_OVERVOLTAGE_THRESHOLD_V) {
-        fault_manager_set(FAULT_OVERVOLTAGE);
+        fault_manager_set_bits(FAULT_OVERVOLTAGE);
     } else {
-        fault_manager_clear(FAULT_OVERVOLTAGE);
+        fault_manager_clear_bits(FAULT_OVERVOLTAGE);
     }
 }

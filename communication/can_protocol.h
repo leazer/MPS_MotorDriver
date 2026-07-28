@@ -5,33 +5,77 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include <stdbool.h>
-#include "motor_params.h"
+#include <stdint.h>
 
-/* CAN ID 编码 (spec §5.1): (function_code << 7) | node_id */
-#define CAN_ID_CONTROL           ((0x02u << 7) | MOTOR_NODE_ID)   /* 0x101 */
-#define CAN_ID_STATUS            ((0x03u << 7) | MOTOR_NODE_ID)   /* 0x181 */
-#define CAN_ID_EXT_STATUS        ((0x05u << 7) | MOTOR_NODE_ID)   /* 0x281 */
+#include "can_frame.h"
 
-/* 控制模式 (spec §3.4) */
+#define CAN_PROTOCOL_VERSION       1u
+#define CAN_ID_BROADCAST           0x080u
+#define CAN_ID_TRAJECTORY(node)    (0x100u + (uint16_t)(node))
+#define CAN_ID_FEEDBACK(node)      (0x180u + (uint16_t)(node))
+#define CAN_ID_HEALTH(node)        (0x280u + (uint16_t)(node))
+
 typedef enum {
-    CAN_MODE_OPEN_LOOP  = 0,
-    CAN_MODE_CURRENT    = 1,
-    CAN_MODE_SPEED      = 2,
-    CAN_MODE_POSITION   = 3,
-    CAN_MODE_ALIGN      = 4,
-    CAN_MODE_CALIBRATE  = 5,
-} can_mode_t;
+    CAN_OPCODE_ARM = 0x01u,
+    CAN_OPCODE_SYNC = 0x02u,
+    CAN_OPCODE_STOP = 0x03u,
+    CAN_OPCODE_CLEAR_FAULT = 0x04u,
+    CAN_OPCODE_DISCOVER = 0x05u
+} can_opcode_t;
 
-/* 解析收到的控制帧 (8 bytes), 更新 motor_control 状态 */
-void can_protocol_handle_control(const uint8_t *data, uint8_t len);
+typedef enum {
+    CAN_NODE_STATE_UNCONFIGURED = 0u,
+    CAN_NODE_STATE_READY = 1u,
+    CAN_NODE_STATE_ARMED = 2u,
+    CAN_NODE_STATE_RUNNING = 3u,
+    CAN_NODE_STATE_HOLD = 4u,
+    CAN_NODE_STATE_FAULT = 5u
+} can_node_state_t;
 
-/* 组装状态帧 (8 bytes) 用于发送 */
-void can_protocol_build_status(uint8_t *data, uint8_t *len);
+typedef struct {
+    int32_t position_mdeg;
+    int32_t velocity_mdeg_s;
+    uint16_t sequence;
+} can_trajectory_t;
 
-/* 组装扩展状态帧 (8 bytes) */
-void can_protocol_build_ext_status(uint8_t *data, uint8_t *len);
+typedef struct {
+    can_opcode_t opcode;
+    uint8_t protocol_version;
+    uint16_t sequence;
+    uint16_t session;
+    uint8_t flags;
+} can_broadcast_t;
+
+typedef struct {
+    int32_t actual_position_mdeg;
+    int32_t actual_velocity_mdeg_s;
+    uint16_t applied_sequence;
+} can_feedback_t;
+
+typedef struct {
+    uint8_t protocol_version;
+    uint8_t node_state;
+    uint16_t fault_bits;
+    uint16_t session;
+    uint16_t vbus_10mv;
+} can_health_t;
+
+uint8_t can_protocol_crc8(const uint8_t *data, uint8_t len);
+bool can_protocol_sequence_newer(uint16_t candidate, uint16_t previous);
+bool can_protocol_decode_trajectory(const can_frame_t *frame,
+                                    uint8_t node_id,
+                                    can_trajectory_t *out);
+bool can_protocol_decode_broadcast(const can_frame_t *frame,
+                                   can_broadcast_t *out);
+bool can_protocol_encode_feedback(uint8_t node_id,
+                                  const can_feedback_t *value,
+                                  can_frame_t *out);
+bool can_protocol_encode_health(uint8_t node_id,
+                                const can_health_t *value,
+                                can_frame_t *out);
+bool can_protocol_encode_broadcast(const can_broadcast_t *value,
+                                   can_frame_t *out);
 
 #ifdef __cplusplus
 }

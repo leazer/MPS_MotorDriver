@@ -1,9 +1,11 @@
 #include <assert.h>
+#include <limits.h>
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include "position_loop.h"
 
 static float run_one_millisecond(int32_t sensor_mdeg)
@@ -72,6 +74,56 @@ static void test_origin_and_first_setpoint(void)
     assert(snap.error_mdeg == 5000);
     assert(snap.speed_ref_elec_mrad_s > 0);
     assert(output > 0.0f);
+}
+
+static void test_negative_joint_direction_end_to_end(void)
+{
+    position_setpoint_t setpoint;
+    position_loop_snapshot_t snap;
+    float output;
+
+    position_loop_init();
+    assert(position_loop_set_joint_origin(100000, 20000, -1));
+    assert(position_loop_joint_direction() == -1);
+    assert(position_loop_sensor_to_joint_mdeg(100000) == 20000);
+    assert(position_loop_sensor_to_joint_mdeg(101000) == 19000);
+    assert(position_loop_sensor_to_joint_mdeg(99000) == 21000);
+    assert(position_loop_control_to_joint_velocity_mdeg_s(5000) == -5000);
+    assert(position_loop_control_to_joint_velocity_mdeg_s(INT32_MIN) ==
+           INT32_MAX);
+
+    /* Correct current joint position is 0; offset-only math would produce
+     * 40000 and falsely accept the 31000 target as a 9000 mdeg move. */
+    assert(position_loop_first_target_safe(120000, 30000));
+    assert(!position_loop_first_target_safe(120000, 31000));
+
+    setpoint = point(21000, 0, 1u, 0u);
+    assert(position_loop_submit(&setpoint));
+    output = run_one_millisecond(100000);
+    snap = snapshot();
+    assert(snap.measured_position_mdeg == 20000);
+    assert(snap.error_mdeg == 1000);
+    assert(output < 0.0f); /* positive joint error => negative control speed */
+
+    setpoint = point(20000, 10000, 2u, 100u);
+    assert(position_loop_submit(&setpoint));
+    output = run_one_millisecond(100000);
+    snap = snapshot();
+    assert(snap.velocity_ff_mdeg_s == 10000);
+    assert(output < 0.0f); /* positive joint velocity => negative control speed */
+
+    setpoint = point(20000, -10000, 3u, 100u);
+    assert(position_loop_submit(&setpoint));
+    output = run_one_millisecond(100000);
+    assert(output > 0.0f);
+
+    assert(!position_loop_set_joint_origin(0, 0, 0));
+    assert(position_loop_joint_direction() == -1);
+
+    assert(position_loop_set_joint_origin(INT32_MIN, INT32_MAX, 1));
+    assert(position_loop_sensor_to_joint_mdeg(INT32_MIN) == INT32_MAX);
+    assert(position_loop_set_joint_origin(INT32_MAX, INT32_MIN, -1));
+    assert(position_loop_sensor_to_joint_mdeg(INT32_MAX) == INT32_MIN);
 }
 
 static void test_extrapolation_limit_and_timeout_hold(void)
@@ -165,6 +217,7 @@ static void test_sign_limit_fault_and_reset(void)
 {
     position_setpoint_t setpoint;
     position_loop_snapshot_t snap;
+    float saved_speed_limit;
     float output;
 
     position_loop_init();
@@ -179,10 +232,15 @@ static void test_sign_limit_fault_and_reset(void)
     output = run_one_millisecond(0);
     assert(output < 0.0f);
 
+    saved_speed_limit =
+        g_motor_tuning.position.speed_limit_elec_rad_s;
+    g_motor_tuning.position.speed_limit_elec_rad_s = 10.0f;
     setpoint = point(29999, POSITION_MAX_VELOCITY_MDEG_S, 3u, 0u);
     assert(position_loop_submit(&setpoint));
     output = run_one_millisecond(0);
-    assert(fabsf(output - POSITION_SPEED_LIMIT_ELEC_RAD_S) < 1.0e-5f);
+    assert(fabsf(output - 10.0f) < 1.0e-5f);
+    g_motor_tuning.position.speed_limit_elec_rad_s =
+        saved_speed_limit;
 
     setpoint = point(POSITION_MAX_ERROR_MDEG + 1, 0, 4u, 0u);
     assert(position_loop_submit(&setpoint));
@@ -233,7 +291,9 @@ static void test_position_friction_feedforward_and_deadband(void)
 
 int main(void)
 {
+    motor_tuning_init();
     test_origin_and_first_setpoint();
+    test_negative_joint_direction_end_to_end();
     test_extrapolation_limit_and_timeout_hold();
     test_sequence_rules_and_wrap();
     test_static_hold_never_times_out();

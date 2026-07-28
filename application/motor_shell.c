@@ -9,8 +9,11 @@
  * 注意: ARMCC V5.06 默认 C90, 变量声明必须在块开头 (无语句后声明).
  */
 #include <rtthread.h>
+#include <rthw.h>
 #include <finsh.h>
 #include <stdlib.h>     /* atoi / strtol */
+#include <errno.h>
+#include <limits.h>
 
 #include "board_motor_pins.h"
 #include "at32m412_416.h"
@@ -27,8 +30,73 @@
 #include "fault_manager.h"
 #include "motor_params.h"
 #include "motor_app.h"
+#include "joint_config_service.h"
+#include "can_motion_service.h"
+#include "can_at32m412.h"
 
 static uint16_t s_position_shell_sequence;
+
+static bool motor_shell_decimal_string(const char *text, bool allow_negative)
+{
+    const char *cursor;
+
+    if (text == NULL || text[0] == '\0') {
+        return false;
+    }
+    cursor = text;
+    if (*cursor == '+' || (*cursor == '-' && allow_negative)) {
+        ++cursor;
+    }
+    if (*cursor == '\0') {
+        return false;
+    }
+    while (*cursor != '\0') {
+        if (*cursor < '0' || *cursor > '9') {
+            return false;
+        }
+        ++cursor;
+    }
+    return true;
+}
+
+static bool motor_shell_parse_i32(const char *text, int32_t *value)
+{
+    char *end;
+    long parsed;
+
+    if (value == NULL || !motor_shell_decimal_string(text, true)) {
+        return false;
+    }
+    errno = 0;
+    end = NULL;
+    parsed = strtol(text, &end, 10);
+    if (errno == ERANGE || end == text || *end != '\0' ||
+        (int64_t)parsed < (int64_t)INT32_MIN ||
+        (int64_t)parsed > (int64_t)INT32_MAX) {
+        return false;
+    }
+    *value = (int32_t)parsed;
+    return true;
+}
+
+static bool motor_shell_parse_u32(const char *text, uint32_t *value)
+{
+    char *end;
+    unsigned long parsed;
+
+    if (value == NULL || !motor_shell_decimal_string(text, false)) {
+        return false;
+    }
+    errno = 0;
+    end = NULL;
+    parsed = strtoul(text, &end, 10);
+    if (errno == ERANGE || end == text || *end != '\0' ||
+        (uint64_t)parsed > (uint64_t)UINT32_MAX) {
+        return false;
+    }
+    *value = (uint32_t)parsed;
+    return true;
+}
 
 /* ---- pwm_info: 打印 TMR1 PWM 配置 ---- */
 static void pwm_info(int argc, char **argv)
@@ -93,9 +161,11 @@ static void pwm_en(int argc, char **argv)
     on = atoi(argv[1]);
     if (on) {
         motor_pwm_at32m412_enable_output();
+        motor_pwm_at32m412_enable_ovf_irq();
         rt_kprintf("MP6540H EN=HIGH (enabled)\n");
     } else {
         motor_pwm_at32m412_disable_output();
+        motor_pwm_at32m412_disable_ovf_irq();
         rt_kprintf("MP6540H EN=LOW (disabled)\n");
     }
 }
@@ -133,7 +203,12 @@ static bool motor_shell_reject_if_running(void)
     const motor_control_t *mc;
 
     mc = motor_app_get_control();
-    if (motor_control_get_state(mc) == MOTOR_CONTROL_STATE_ENABLED) {
+    if (motor_control_get_state(mc) != MOTOR_CONTROL_STATE_DISABLED ||
+        motor_control_isr_open_loop_active() ||
+        motor_control_isr_align_active() ||
+        motor_control_isr_current_active() ||
+        motor_control_isr_speed_active() ||
+        motor_control_isr_position_active()) {
         rt_kprintf("FAIL: motor already enabled/running. Run 'mc_stop' first.\n");
         return true;
     }
@@ -530,7 +605,11 @@ static void mc_pos_zero(int argc, char **argv)
         return;
     }
     sensor_mdeg = encoder_service_get_control_position_mdeg();
-    position_loop_set_origin(sensor_mdeg, (int32_t)known_mdeg);
+    if (!joint_config_service_set_runtime_origin(sensor_mdeg,
+                                                 (int32_t)known_mdeg)) {
+        rt_kprintf("FAIL: runtime origin locked, persistent, busy, or reboot required\n");
+        return;
+    }
     s_position_shell_sequence = 0u;
     rt_kprintf("position zero: sensor=%ld joint=%ld mdeg\n",
                (long)sensor_mdeg, known_mdeg);
@@ -659,6 +738,220 @@ static void mc_pos_status(int argc, char **argv)
 }
 MSH_CMD_EXPORT(mc_pos_status, show compact position loop status);
 
+/* ---- can_status: checked, compact CAN motion/driver diagnostics ---- */
+static void can_status(int argc, char **argv)
+{
+    can_motion_snapshot_t motion;
+    can_at32m412_diag_t driver;
+    uint32_t fault;
+    uint32_t check;
+
+    (void)argc; (void)argv;
+    if (!can_motion_service_get_snapshot(&motion)) {
+        rt_kprintf("FAIL: CAN motion snapshot unavailable\n");
+        return;
+    }
+    can_at32m412_get_diag(&driver);
+    fault = fault_manager_get();
+    check = 0x43414E31u ^
+            (uint32_t)motion.node_id ^
+            (uint32_t)motion.state ^
+            (uint32_t)motion.session ^
+            (uint32_t)motion.pending_sequence ^
+            (uint32_t)motion.applied_sequence ^
+            (uint32_t)motion.pending_age_ms ^
+            (uint32_t)motion.sync_age_ms ^
+            motion.rx_frames ^
+            motion.tx_frames ^
+            motion.protocol_errors ^
+            driver.rx_overflow ^
+            driver.bus_off_events ^
+            driver.tx_errors ^ fault;
+    rt_kprintf("cs id=%u s=%u se=%u p=%u a=%u pa=%u sa=%u "
+               "rx=%lu tx=%lu pe=%lu ro=%lu bo=%lu te=%lu "
+               "f=%08X k=%08X\n",
+               (unsigned)motion.node_id,
+               (unsigned)motion.state,
+               (unsigned)motion.session,
+               (unsigned)motion.pending_sequence,
+               (unsigned)motion.applied_sequence,
+               (unsigned)motion.pending_age_ms,
+               (unsigned)motion.sync_age_ms,
+               (unsigned long)motion.rx_frames,
+               (unsigned long)motion.tx_frames,
+               (unsigned long)motion.protocol_errors,
+               (unsigned long)driver.rx_overflow,
+               (unsigned long)driver.bus_off_events,
+               (unsigned long)driver.tx_errors,
+               (unsigned)fault,
+               (unsigned)check);
+}
+MSH_CMD_EXPORT(can_status, show checked CAN motion and driver diagnostics);
+
+typedef enum {
+    CAN_DIAG_RESET_OK = 0,
+    CAN_DIAG_RESET_MOTOR_ACTIVE,
+    CAN_DIAG_RESET_PWM_ACTIVE,
+    CAN_DIAG_RESET_NOT_READY,
+} can_diag_reset_result_t;
+
+static can_diag_reset_result_t motor_shell_can_diag_reset_if_safe(void)
+{
+    const motor_control_t *control;
+    can_motion_snapshot_t motion;
+    can_diag_reset_result_t result;
+    rt_base_t level;
+
+    result = CAN_DIAG_RESET_MOTOR_ACTIVE;
+    level = rt_hw_interrupt_disable();
+    control = motor_app_get_control();
+    if (control != NULL &&
+        motor_control_get_state(control) == MOTOR_CONTROL_STATE_DISABLED &&
+        !motor_control_isr_open_loop_active() &&
+        !motor_control_isr_align_active() &&
+        !motor_control_isr_current_active() &&
+        !motor_control_isr_speed_active() &&
+        !motor_control_isr_position_active()) {
+        if (gpio_input_data_bit_read(PWM_EN_GPIO_PORT, PWM_EN_PIN) == RESET) {
+            if (can_motion_service_get_snapshot(&motion) &&
+                motion.state == CAN_NODE_STATE_READY) {
+                can_motion_service_reset_diagnostics();
+                can_at32m412_reset_diagnostics();
+                result = CAN_DIAG_RESET_OK;
+            } else {
+                result = CAN_DIAG_RESET_NOT_READY;
+            }
+        } else {
+            result = CAN_DIAG_RESET_PWM_ACTIVE;
+        }
+    }
+    rt_hw_interrupt_enable(level);
+    return result;
+}
+
+/* ---- can_diag_reset: clear counters only while every output is safe ---- */
+static void can_diag_reset(int argc, char **argv)
+{
+    can_diag_reset_result_t result;
+
+    (void)argc; (void)argv;
+    result = motor_shell_can_diag_reset_if_safe();
+    if (result == CAN_DIAG_RESET_OK) {
+        rt_kprintf("CAN diagnostics reset\n");
+    } else if (result == CAN_DIAG_RESET_NOT_READY) {
+        rt_kprintf("FAIL: can_diag_reset requires CAN READY\n");
+    } else if (result == CAN_DIAG_RESET_PWM_ACTIVE) {
+        rt_kprintf("FAIL: can_diag_reset requires MP6540H EN=LOW\n");
+    } else {
+        rt_kprintf("FAIL: can_diag_reset requires every motor mode disabled\n");
+    }
+}
+MSH_CMD_EXPORT(can_diag_reset, reset cumulative CAN diagnostics while stopped and READY);
+
+/* ---- joint_cfg_set: 捕获并持久化已知关节坐标 ---- */
+static void joint_cfg_set(int argc, char **argv)
+{
+    uint32_t node_id;
+    int32_t known_mdeg;
+    int32_t direction;
+    int32_t min_mdeg;
+    int32_t max_mdeg;
+    int64_t width_mdeg;
+
+    if (argc != 6) {
+        rt_kprintf("usage: joint_cfg_set <node_id> <known_mdeg> <direction> <min_mdeg> <max_mdeg>\n");
+        return;
+    }
+    if (!motor_shell_parse_u32(argv[1], &node_id) ||
+        !motor_shell_parse_i32(argv[2], &known_mdeg) ||
+        !motor_shell_parse_i32(argv[3], &direction) ||
+        !motor_shell_parse_i32(argv[4], &min_mdeg) ||
+        !motor_shell_parse_i32(argv[5], &max_mdeg)) {
+        rt_kprintf("FAIL: invalid or overflowing joint configuration value\n");
+        return;
+    }
+
+    width_mdeg = (int64_t)max_mdeg - (int64_t)min_mdeg;
+    if (node_id < 1u || node_id > 2u ||
+        (direction != -1 && direction != 1) ||
+        min_mdeg > known_mdeg || known_mdeg > max_mdeg ||
+        width_mdeg >= 360000LL) {
+        rt_kprintf("FAIL: require node=1..2 direction=+-1 min<=known<=max width<360000\n");
+        return;
+    }
+
+    if (!joint_config_service_capture((uint8_t)node_id,
+                                      known_mdeg,
+                                      (int8_t)direction,
+                                      min_mdeg,
+                                      max_mdeg)) {
+        rt_kprintf("FAIL: joint config capture requires stopped motor and valid encoder/storage\n");
+        return;
+    }
+    rt_kprintf("joint config captured: node=%u known_mdeg=%ld\n",
+               (unsigned)node_id, (long)known_mdeg);
+}
+MSH_CMD_EXPORT(joint_cfg_set, joint_cfg_set <node_id> <known_mdeg> <direction> <min_mdeg> <max_mdeg>);
+
+/* ---- joint_cfg_show: 显示持久化记录、编码器与恢复状态 ---- */
+static void joint_cfg_show(int argc, char **argv)
+{
+    joint_config_service_status_t status;
+
+    (void)argv;
+    if (argc != 1) {
+        rt_kprintf("usage: joint_cfg_show\n");
+        return;
+    }
+    if (!joint_config_service_get_status(&status)) {
+        rt_kprintf("FAIL: joint config status unavailable\n");
+        return;
+    }
+
+    rt_kprintf("=== joint_config ===\n");
+    rt_kprintf("record_present       : %u\n", status.record_present ? 1u : 0u);
+    rt_kprintf("version              : %u\n", (unsigned)status.record.version);
+    rt_kprintf("generation           : %u\n", (unsigned)status.record.generation);
+    rt_kprintf("node                 : %u\n", (unsigned)status.record.node_id);
+    rt_kprintf("zero_raw             : %u\n",
+               (unsigned)status.record.zero_corrected_raw16);
+    rt_kprintf("known_mdeg           : %ld\n",
+               (long)status.record.known_joint_position_mdeg);
+    rt_kprintf("min_mdeg             : %ld\n",
+               (long)status.record.min_joint_position_mdeg);
+    rt_kprintf("max_mdeg             : %ld\n",
+               (long)status.record.max_joint_position_mdeg);
+    rt_kprintf("direction            : %d\n",
+               (int)status.record.joint_direction);
+    rt_kprintf("crc_valid            : %u\n", status.crc_valid ? 1u : 0u);
+    rt_kprintf("encoder_ready        : %u\n", status.encoder_ready ? 1u : 0u);
+    rt_kprintf("restored_joint_mdeg  : %ld\n",
+               (long)status.restored_joint_mdeg);
+    rt_kprintf("restored_joint_valid : %u\n",
+               status.restored_joint_valid ? 1u : 0u);
+    rt_kprintf("service_ready        : %u\n", status.service_ready ? 1u : 0u);
+    rt_kprintf("mutation_busy        : %u\n", status.mutation_busy ? 1u : 0u);
+    rt_kprintf("runtime_locked       : %u\n", status.runtime_locked ? 1u : 0u);
+    rt_kprintf("reboot_required      : %u\n", status.reboot_required ? 1u : 0u);
+}
+MSH_CMD_EXPORT(joint_cfg_show, show persistent joint coordinate status);
+
+/* ---- joint_cfg_erase: 停止状态擦除两页关节配置 ---- */
+static void joint_cfg_erase(int argc, char **argv)
+{
+    (void)argv;
+    if (argc != 1) {
+        rt_kprintf("usage: joint_cfg_erase\n");
+        return;
+    }
+    if (!joint_config_service_erase()) {
+        rt_kprintf("FAIL: joint config erase requires stopped motor and valid storage\n");
+        return;
+    }
+    rt_kprintf("joint config erased; reboot required\n");
+}
+MSH_CMD_EXPORT(joint_cfg_erase, erase persistent joint coordinate while stopped);
+
 /* ---- mc_cal: 零偏标定 (PWM 50% 时采 1024 次平均, spec §4.3.3) ----
  * 前置条件: PWM 已输出 50% (mc_stop 或开机默认), MP6540H 可使能或禁用.
  * 标定期间 ISR 若未启动, 用软件触发读取; 若已启动, 直接读注入结果.
@@ -742,6 +1035,9 @@ MSH_CMD_EXPORT(fault, show fault flags);
 static void fault_clear(int argc, char **argv)
 {
     (void)argc; (void)argv;
+    if (motor_shell_reject_if_running()) {
+        return;
+    }
     fault_manager_clear_all();
     rt_kprintf("all faults cleared\n");
 }
@@ -905,18 +1201,8 @@ static void enc_status(int argc, char **argv)
 {
     encoder_snapshot_t snap;
     encoder_tracker_snapshot_t trk;
-    bool motor_active;
 
     (void)argc; (void)argv;
-    motor_active = motor_control_isr_open_loop_active() ||
-                   motor_control_isr_align_active() ||
-                   motor_control_isr_current_active() ||
-                   motor_control_isr_speed_active();
-
-    if (!motor_active) {
-        (void)encoder_service_poll_once_thread();
-    }
-
     if (!encoder_service_get_snapshot(&snap)) {
         rt_kprintf("encoder snapshot invalid\n");
         return;

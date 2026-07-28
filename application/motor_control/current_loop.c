@@ -13,6 +13,7 @@
  */
 #include "current_loop.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include "board_motor_pins.h"   /* PWM_FREQUENCY_HZ: 与 motor_control_isr.c 同一来源 */
 #include <string.h>
 
@@ -70,12 +71,51 @@ void current_loop_reset(void)
     s_pid_q.integral = 0.0f;
     s_pid_d.last_error = 0.0f;
     s_pid_q.last_error = 0.0f;
+    memset((void *)&g_motor_loop_debug.current, 0,
+           sizeof(g_motor_loop_debug.current));
 }
 
 void current_loop_run(float id, float iq, float *vd_ref, float *vq_ref)
 {
-    *vd_ref = pid_f32_exec(&s_pid_d, s_id_ref - id);
-    *vq_ref = pid_f32_exec(&s_pid_q, s_iq_ref - iq);
+    float id_error;
+    float iq_error;
+    float vd_unlimited;
+    float vq_unlimited;
+
+    s_pid_d.kp = g_motor_tuning.current.id_kp;
+    s_pid_d.ki = g_motor_tuning.current.id_ki;
+    s_pid_d.integral_limit =
+        g_motor_tuning.current.id_integral_limit_v;
+    s_pid_d.out_limit = g_motor_tuning.current.id_output_limit_v;
+    s_pid_q.kp = g_motor_tuning.current.iq_kp;
+    s_pid_q.ki = g_motor_tuning.current.iq_ki;
+    s_pid_q.integral_limit =
+        g_motor_tuning.current.iq_integral_limit_v;
+    s_pid_q.out_limit = g_motor_tuning.current.iq_output_limit_v;
+
+    id_error = s_id_ref - id;
+    iq_error = s_iq_ref - iq;
+    *vd_ref = pid_f32_exec(&s_pid_d, id_error);
+    *vq_ref = pid_f32_exec(&s_pid_q, iq_error);
+    vd_unlimited = s_pid_d.kp * id_error + s_pid_d.integral;
+    vq_unlimited = s_pid_q.kp * iq_error + s_pid_q.integral;
+
+    g_motor_loop_debug.current.id_ref_A = s_id_ref;
+    g_motor_loop_debug.current.iq_ref_A = s_iq_ref;
+    g_motor_loop_debug.current.id_measured_A = id;
+    g_motor_loop_debug.current.iq_measured_A = iq;
+    g_motor_loop_debug.current.id_error_A = id_error;
+    g_motor_loop_debug.current.iq_error_A = iq_error;
+    g_motor_loop_debug.current.id_integral_v = s_pid_d.integral;
+    g_motor_loop_debug.current.iq_integral_v = s_pid_q.integral;
+    g_motor_loop_debug.current.vd_unlimited_v = vd_unlimited;
+    g_motor_loop_debug.current.vq_unlimited_v = vq_unlimited;
+    g_motor_loop_debug.current.vd_output_v = *vd_ref;
+    g_motor_loop_debug.current.vq_output_v = *vq_ref;
+    g_motor_loop_debug.current.id_saturated =
+        *vd_ref != vd_unlimited ? 1u : 0u;
+    g_motor_loop_debug.current.iq_saturated =
+        *vq_ref != vq_unlimited ? 1u : 0u;
 }
 
 float current_loop_get_id_ref_A(void)

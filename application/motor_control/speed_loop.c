@@ -7,6 +7,7 @@
 #include "speed_loop.h"
 #include "board_motor_pins.h"
 #include "motor_params.h"
+#include "motor_tuning.h"
 #include <string.h>
 
 #define SPEED_LOOP_DIV          16u
@@ -51,6 +52,8 @@ void speed_loop_reset(void)
     s_measured_rad_s = 0.0f;
     s_iq_ref_A = 0.0f;
     s_divider = 0u;
+    memset((void *)&g_motor_loop_debug.speed, 0,
+           sizeof(g_motor_loop_debug.speed));
 }
 
 void speed_loop_set_target_rad_s(float target_rad_s)
@@ -59,6 +62,7 @@ void speed_loop_set_target_rad_s(float target_rad_s)
 
     max_speed = (float)RPM_MAX * 6.28318530718f / 60.0f;
     s_target_rad_s = speed_loop_clamp(target_rad_s, -max_speed, max_speed);
+    g_motor_loop_debug.speed.target_rad_s = s_target_rad_s;
 }
 
 float speed_loop_run(float measured_rad_s)
@@ -71,30 +75,36 @@ float speed_loop_run(float measured_rad_s)
     float out;
 
     s_measured_rad_s = measured_rad_s;
+    g_motor_loop_debug.speed.target_rad_s = s_target_rad_s;
+    g_motor_loop_debug.speed.command_rad_s = s_command_rad_s;
+    g_motor_loop_debug.speed.measured_rad_s = s_measured_rad_s;
     s_divider++;
     if (s_divider < SPEED_LOOP_DIV) {
         return s_iq_ref_A;
     }
     s_divider = 0u;
 
-    max_step = SPEED_RAMP_RAD_S2 * SPEED_LOOP_DT_S;
+    max_step = g_motor_tuning.speed.ramp_rad_s2 * SPEED_LOOP_DT_S;
     delta = speed_loop_clamp(s_target_rad_s - s_command_rad_s, -max_step, max_step);
     s_command_rad_s += delta;
 
     error = s_command_rad_s - s_measured_rad_s;
+    s_pid.ki = g_motor_tuning.speed.ki;
+    s_pid.integral_limit = g_motor_tuning.speed.integral_limit_A;
+    s_pid.out_limit = g_motor_tuning.speed.output_limit_A;
     s_pid.integral += s_pid.ki * error * SPEED_LOOP_DT_S;
     s_pid.integral = speed_loop_clamp(s_pid.integral,
                                       -s_pid.integral_limit,
                                       s_pid.integral_limit);
     feedforward = 0.0f;
     if (s_command_rad_s > 0.0f) {
-        feedforward = SPEED_IQ_FRICTION_A;
+        feedforward = g_motor_tuning.speed.friction_A;
     } else if (s_command_rad_s < 0.0f) {
-        feedforward = -SPEED_IQ_FRICTION_A;
+        feedforward = -g_motor_tuning.speed.friction_A;
     }
-    kp = s_pid.kp;
+    kp = g_motor_tuning.speed.kp;
     if ((s_command_rad_s * error) < 0.0f) {
-        kp = PID_SPEED_KP_BRAKE;
+        kp = g_motor_tuning.speed.kp_brake;
     }
     out = kp * error + s_pid.integral + feedforward;
     if ((s_command_rad_s * error) < 0.0f &&
@@ -102,6 +112,18 @@ float speed_loop_run(float measured_rad_s)
         out = 0.0f;
     }
     s_iq_ref_A = speed_loop_clamp(out, -s_pid.out_limit, s_pid.out_limit);
+
+    g_motor_loop_debug.speed.target_rad_s = s_target_rad_s;
+    g_motor_loop_debug.speed.command_rad_s = s_command_rad_s;
+    g_motor_loop_debug.speed.measured_rad_s = s_measured_rad_s;
+    g_motor_loop_debug.speed.error_rad_s = error;
+    g_motor_loop_debug.speed.integral_A = s_pid.integral;
+    g_motor_loop_debug.speed.active_kp = kp;
+    g_motor_loop_debug.speed.friction_A = feedforward;
+    g_motor_loop_debug.speed.iq_unlimited_A = out;
+    g_motor_loop_debug.speed.iq_output_A = s_iq_ref_A;
+    g_motor_loop_debug.speed.saturated =
+        s_iq_ref_A != out ? 1u : 0u;
     return s_iq_ref_A;
 }
 

@@ -20,17 +20,22 @@ typedef enum {
     FAULT_CAL_INVALID      = 1u << 6,  /* 告警级: 不阻止使能 (spec §5.5/§4.7.3) */
     FAULT_CURRENT_SAMPLE   = 1u << 7,
     FAULT_POSITION_TRACKING = 1u << 8,
+    FAULT_CAN_BUS          = 1u << 9,
 } motor_fault_t;
 
 /* 致命故障掩码: 这些位置位时 ISR 强制关 PWM.
  * FAULT_CAL_INVALID 是告警, 不在此掩码内 (spec §4.7.3: 不阻止电机使能). */
 #define FAULT_FATAL_MASK  (FAULT_DRIVER | FAULT_OVERCURRENT | FAULT_SENSOR | \
                            FAULT_UNDERVOLTAGE | FAULT_OVERVOLTAGE | \
-                           FAULT_CURRENT_SAMPLE | FAULT_POSITION_TRACKING)
+                           FAULT_CAN_TIMEOUT | FAULT_CURRENT_SAMPLE | \
+                           FAULT_POSITION_TRACKING | FAULT_CAN_BUS)
 
+/* Boot-time absolute reset. Call before interrupt-driven fault writers start. */
 void fault_manager_init(void);
-void fault_manager_set(uint32_t fault);
-void fault_manager_clear(uint32_t fault);
+/* Atomic bit updates preserve concurrently latched unrelated fault bits. */
+void fault_manager_set_bits(uint32_t bits);
+void fault_manager_clear_bits(uint32_t bits);
+/* Absolute runtime reset is allowed only after an all-disabled output gate. */
 void fault_manager_clear_all(void);
 uint32_t fault_manager_get(void);
 bool fault_manager_any(void);

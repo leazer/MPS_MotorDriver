@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Target repository root: `E:\WorkSpaces\5_CanSerialTool\X-TRACK` (implementation worktree to be selected at execution time).
-- Protocol semantic source: MotorDriver `docs/superpowers/specs/2026-07-21-dual-node-can-trajectory-design.md` at commit `1234a03`.
+- Protocol semantic source: MotorDriver `docs/superpowers/specs/2026-07-21-dual-node-can-trajectory-design.md` and `communication/can_protocol.{h,c}` at qualified commit `2a9a004646f63013a27f1574682cc2ecae5aad40`.
+- Freeze check before implementation: SHA-256 is `D49657A9506FBA18EDCC446288EE761839B63EEC1D993D81C210E82C8C6CBA5F` for the design, `C98E8D101F5B8369F10A6BA579FB1C2CA84F7BF81634742AD6C7A228FFDD494A` for `can_protocol.h`, and `8E1A9FD6DCE07C3B09F2EB1D61A0CBB15E5F06936CB2CF64215CF8AF25C4E8E4` for `can_protocol.c`; if any differs, stop and reconcile both repositories' golden vectors before coding.
 - Do not implement this plan in the currently dirty `five-bar-motor-demo-offline` worktree. Preserve its user/other-session edits and generated test directories; begin execution with `superpowers:using-git-worktrees` after that branch's intended changes are committed.
 - Classic CAN, 11-bit IDs, `1,000,000 bit/s`, CAN1 PB9 TX/PB8 RX, two 120 Ω end terminations.
 - Every 10 ms dual-node submission is Node 1 preload, Node 2 preload, then broadcast SYNC with the same 16-bit sequence.
@@ -22,6 +23,8 @@
 - Host-testable protocol/transport code must not include `Arduino.h` or `HardwareCAN.h`.
 - ARMCC5 compatibility remains mandatory: no C++14 features, exceptions, RTTI dependence, heap allocation, or scoped-enum assumptions outside existing compatibility macros.
 - Hardware builds must call `setMode(CAN_MODE_COMMUNICATE)` after `HardwareCAN::begin`, because the current driver initializes in listen-only mode.
+- Qualified MotorDriver Node 1 is persisted as node `1`, known pose `0 mdeg`, direction `+1`, limits `[-90000, 90000] mdeg`; its encoder calibration and joint-record CRC survive reset. It deliberately latches `FAULT_CAN_BUS` after bus-off and does not recover that hardware latch through `CLEAR_FAULT`; restore the physical bus and reboot the node before rediscovery.
+- Bring-up order is physical bus plus both terminations, powered X-Track in communicate mode, then MotorDriver reboot. Never boot a configured MotorDriver on an unacknowledged bus and then treat its expected bus-off latch as an application protocol failure.
 
 ## File Map
 
@@ -228,7 +231,8 @@ The fake stores written frames and queues received frames. Test all of:
 - mismatch for less than 30 ms waits; mismatch at 30 ms sends three STOP frames and latches an error.
 - missing feedback, wrong session/version/state, nonzero fault, write failure, bus-off event, or RX overflow produces the same safe-stop behavior.
 - `RequestStop()` is idempotent and session-independent.
-- `ClearFault()` sends STOP, CLEAR_FAULT, and DISCOVER, clears only transport-side discovery latches, and does not ARM or submit motion.
+- `ClearFault()` after a recoverable node timeout/fault sends STOP, CLEAR_FAULT, and DISCOVER, clears only transport-side discovery latches, and does not ARM or submit motion.
+- X-Track port bus-off or MotorDriver `FAULT_CAN_BUS` is non-clearable in-session: `ClearFault()` returns false, keeps Submit blocked, and reports that the bus must be restored and the affected MotorDriver rebooted before rediscovery.
 - pause/resume ARM uses `last_submitted+1` as its expected first sequence.
 - `65535 -> 0` wire wrap works while 32-bit trajectory sequence remains monotonic within the 2048-point capacity.
 
@@ -263,11 +267,11 @@ Extend `IMotorTransport` with:
 virtual bool ClearFault() = 0;
 ```
 
-`SimMotorTransport::ClearFault()` succeeds only when its active simulated condition no longer reports an error. Remove the current `IsConnected()` precondition from `MotorDemoController::ResetFault()`, because a faulted CAN transport is intentionally disconnected. ResetFault calls `ClearFault()` first; hardware returns to `HwDiscovery` and waits for READY health, while simulation may return to Disabled. Neither path enters safe motion or starts a trajectory.
+`SimMotorTransport::ClearFault()` succeeds only when its active simulated condition no longer reports an error. Remove the current `IsConnected()` precondition from `MotorDemoController::ResetFault()`, because a faulted CAN transport is intentionally disconnected. ResetFault calls `ClearFault()` first; recoverable hardware faults return to `HwDiscovery` and wait for READY health, while a CAN bus-off keeps the controller faulted until the port and affected node have been restarted. Simulation may return to Disabled. No path enters safe motion or starts a trajectory.
 
 - [ ] **Step 4: Implement lifecycle and stop priority**
 
-Initialize resets all state, starts the port, and broadcasts DISCOVER. Update polls TX, drains all available frames with a fixed maximum of 16 per call, validates health/feedback, checks port diagnostics, and applies 30 ms deadlines with wrap-safe millisecond arithmetic. EnterSafeMotion increments a session generator, clears old feedback, and broadcasts ARM. Submit validates finite/range/sequence, emits active node preloads then SYNC, and only increments submitted stats after all writes succeed. ClearFault emits STOP three times, one CLEAR_FAULT, and one DISCOVER; it clears local error/seen state only after every write is accepted, then remains disconnected until required READY health is received.
+Initialize resets all state, starts the port, and broadcasts DISCOVER. Update polls TX, drains all available frames with a fixed maximum of 16 per call, validates health/feedback, checks port diagnostics, and applies 30 ms deadlines with wrap-safe millisecond arithmetic. EnterSafeMotion increments a session generator, clears old feedback, and broadcasts ARM. Submit validates finite/range/sequence, emits active node preloads then SYNC, and only increments submitted stats after all writes succeed. For recoverable faults, ClearFault emits STOP three times, one CLEAR_FAULT, and one DISCOVER; it clears local error/seen state only after every write is accepted, then remains disconnected until required READY health is received. For port bus-off or node `FAULT_CAN_BUS`, it sends best-effort STOP but retains `CanBusFault`, refuses CLEAR_FAULT/re-ARM, and exposes a reboot-required status.
 
 In dual mode, ReadLatest succeeds only after both nodes confirm the same sequence. In explicit single-node mode, the inactive joint feedback mirrors the last submitted command; the compile-time configuration and service status visibly mark commissioning mode. This is allowed only for a free-shaft commissioning build and never in final production.
 
@@ -411,7 +415,7 @@ If a correction was needed, add the failing test first, apply the minimum fix, r
 
 - [ ] **Step 1: Verify wiring and safe discovery**
 
-Use PB9/PB8 CAN1, two 120 Ω ends, common ground, and short cable. Keep the motor free. Boot Node 1 and the commissioning image; require the visible commissioning banner, Node 1 READY health, correct version/session/VBUS, and no Node 2 requirement.
+Use PB9/PB8 CAN1, two 120 Ω ends, common ground, and short cable. Keep the motor free. Power/boot X-Track first and verify it has entered 1 Mbps communicate mode; only then reboot MotorDriver Node 1 so its first health transmission receives an ACK. Require the visible commissioning banner, Node 1 READY health, correct version/session/VBUS, and no Node 2 requirement. If Node 1 reports `FAULT_CAN_BUS`, correct wiring/termination and reboot it; do not issue repeated CLEAR_FAULT attempts.
 
 - [ ] **Step 2: Verify frame order and 100 Hz rate**
 
@@ -419,7 +423,7 @@ Run a short bounded trajectory. Require each 10 ms cycle to contain Node 1 prelo
 
 - [ ] **Step 3: Run MotorDriver Stage 8 single-node gates**
 
-Execute static ±5°, reversal ±10°, 10°/30°/s sine, STOP, 50 ms HOLD, 500 ms fatal timeout, clear/re-ARM, and 10-minute continuity. Require the MotorDriver metrics and final safety in its plan.
+Execute static ±5°, reversal ±10°, 10°/30°/s sine, STOP, 50 ms HOLD, 500 ms fatal timeout, recoverable timeout clear/re-ARM, and 10-minute continuity. Separately force physical bus loss, require `FAULT_CAN_BUS`, restore the bus, reboot Node 1, rediscover, and prove that motion cannot resume without a fresh ARM. Require the MotorDriver metrics and final safety in its plan.
 
 - [ ] **Step 4: Restore the final X-Track image immediately**
 

@@ -1,0 +1,49 @@
+Node 1 realtime-CAN position baseline, Kp=5.0 — 2026-07-22
+
+Purpose
+-------
+Establish the unchanged MotorDriver response only after X-Track's TMR6-based
+10 ms CAN sender passed its timing gate.  This is the comparison baseline for
+the single-variable Kp=7.5 trial.
+
+Build and bench identity
+------------------------
+- MotorDriver source before evidence commit: 68ddc4174ae49cd3f2d575ec14a15b620279eb77
+- X-Track realtime controller: 5c7a3bb6a9981ad3f5db133227453dbd98f7c509
+- MotorDriver protocol baseline: 2a9a004646f63013a27f1574682cc2ecae5aad40
+- Node 1 J-Link: 20721552; X-Track J-Link: 20721850; shell: COM9/115200.
+- Motor unloaded and unobstructed.
+- PID_POSITION_KP=5.0f; PID_SPEED_KP=0.01f; PID_SPEED_KI=0.01f;
+  SPEED_IQ_LIMIT_A=0.5f; POSITION_IQ_FRICTION_MOVING_A=0.04f.
+
+Raw record
+----------
+- File: 2026-07-22-position-response-kp5.raw.jsonl
+- SHA-256: F8326E3A5FE8C46C26B18B9A94517C142B54EC0B1FE527073BCB89A3A4C798CB
+- 60 s, 1191 checked samples; 1159 position-active samples.
+- Each record retains timestamp, active flag, CAN state/session, command,
+  reference, measured position, feed-forward and measured speed, Iq reference,
+  point/sync age, sequence, fault, and CAN error counters.
+
+Computed metrics
+----------------
+- Command span: 10.000 deg.
+- Settled endpoint span: 7.015 deg.
+- Endpoint holds remaining within +/-0.5 deg: 0; unsettled endpoints: 34.
+- Maximum settling time: not reached during the endpoint holds.
+- Maximum observed endpoint overshoot: 0.000 deg.
+- Peak |Iq_ref|: 0.218 A.
+- Maximum sync_age while CAN state RUNNING: 19 ms.
+- protocol_error/RX-overflow/bus-off/TX-error deltas: 0/0/0/0.
+- Startup-only protocol_errors remained fixed at 3 and was not hidden.
+
+Conclusion
+----------
+The communication gate passes, but Kp=5.0 fails both the >=9.5 deg measured
+span and <=350 ms settling requirements.  Current and overshoot have ample
+margin, so the approved next action is to change only PID_POSITION_KP to 7.5f.
+
+Cleanup
+-------
+The capture path halted X-Track before issuing mc_stop.  Final Node 1 state:
+DISABLED, fault=0, EN=0, CCR1/2/3=2812/2812/2812.

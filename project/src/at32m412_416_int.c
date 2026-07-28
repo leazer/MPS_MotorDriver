@@ -30,7 +30,7 @@
 
 /* private includes ----------------------------------------------------------*/
 /* add user code begin private includes */
-
+#include "can_at32m412.h"
 /* add user code end private includes */
 
 /* private typedef -----------------------------------------------------------*/
@@ -217,7 +217,7 @@ void ADC1_2_IRQHandler(void)
 void CAN1_RX_IRQHandler(void)
 {
   /* add user code begin CAN1_RX_IRQ 0 */
-
+  can_at32m412_irq_rx();
   /* add user code end CAN1_RX_IRQ 0 */
 
   /* add user code begin CAN1_RX_IRQ 1 */
@@ -226,5 +226,20 @@ void CAN1_RX_IRQHandler(void)
 }
 
 /* add user code begin 1 */
+
+void CAN1_TX_IRQHandler(void)
+{
+  can_at32m412_irq_tx();
+}
+
+void CAN1_STAT_IRQHandler(void)
+{
+  can_at32m412_irq_status();
+}
+
+void CAN1_ERR_IRQHandler(void)
+{
+  can_at32m412_irq_error();
+}
 
 /* add user code end 1 */

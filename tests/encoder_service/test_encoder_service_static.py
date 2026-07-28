@@ -10,6 +10,7 @@ ACQ_TIMER_HEADER = ROOT / "platform" / "at32m412" / "encoder_acq_timer_at32m412.
 ACQ_TIMER_SOURCE = ROOT / "platform" / "at32m412" / "encoder_acq_timer_at32m412.c"
 CMAKE = ROOT / "CMakeLists.txt"
 MDK_PROJECT = ROOT / "project" / "MDK_V5" / "MPS_MotorDriver.uvprojx"
+MOTOR_SHELL = ROOT / "application" / "motor_shell.c"
 
 
 def read(path):
@@ -200,14 +201,12 @@ def test_encoder_shell_commands_exist():
         assert token in shell
 
 
-def test_enc_status_polls_once_when_motor_is_idle():
-    shell = read(ROOT / "application" / "motor_shell.c")
+def test_enc_status_uses_timer_owned_snapshot_without_thread_spi_read():
+    shell = read(MOTOR_SHELL)
     start = shell.index("static void enc_status")
     body = shell[start:shell.index("MSH_CMD_EXPORT(enc_status", start)]
-    assert "encoder_service_poll_once_thread" in body
-    assert "motor_control_isr_open_loop_active" in body
-    assert "motor_control_isr_align_active" in body
-    assert "motor_control_isr_current_active" in body
+    assert "encoder_service_get_snapshot(&snap)" in body
+    assert "encoder_service_poll_once_thread" not in body
 
 
 if __name__ == "__main__":
@@ -227,5 +226,5 @@ if __name__ == "__main__":
     test_encoder_acquisition_uses_hardware_timer_not_thread()
     test_calibration_consumes_encoder_service_snapshots()
     test_encoder_shell_commands_exist()
-    test_enc_status_polls_once_when_motor_is_idle()
+    test_enc_status_uses_timer_owned_snapshot_without_thread_spi_read()
     print("encoder_service static tests passed")
